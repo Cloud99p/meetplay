@@ -72,6 +72,31 @@ function resolveLiveKitUrl(url?: string): string {
   return `${proto}//${window.location.host}`;
 }
 
+/**
+ * Quick health probe to check whether LiveKit is reachable through the proxy
+ * BEFORE attempting a WebSocket connection (which takes 8 s to time out).
+ * Returns `true` if the server responded (any HTTP status), `false` if the
+ * request itself failed (network error / unreachable).
+ */
+async function probeLiveKit(url: string): Promise<boolean> {
+  try {
+    const httpUrl = url
+      .replace(/^wss:/, 'https:')
+      .replace(/^ws:/, 'http:');
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), 2_000);
+    await fetch(`${httpUrl}/rtc/validate`, {
+      method: 'GET',
+      signal: ctrl.signal,
+    });
+    clearTimeout(id);
+    // Any response (even 401/403) means the server is reachable.
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function connectToLiveKit(
   _roomName: string,
   _identity: string,
@@ -80,6 +105,21 @@ export async function connectToLiveKit(
   url?: string
 ): Promise<LiveKitConnection> {
   const livekitUrl = resolveLiveKitUrl(url);
+
+  // Quick probe: if LiveKit isn't reachable through the proxy, fail fast
+  // instead of waiting for the SDK's WebSocket timeout (8 s).
+  const reachable = await probeLiveKit(livekitUrl);
+  if (!reachable) {
+    const room = new Room({
+      adaptiveStream: true,
+      dynacast: true,
+      videoCaptureDefaults: { resolution: { width: 1280, height: 720 } },
+    });
+    return {
+      room,
+      error: 'The media server is not running or unreachable.',
+    };
+  }
 
   const room = new Room({
     adaptiveStream: true,
