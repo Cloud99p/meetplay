@@ -1,6 +1,9 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import fastifyStatic from '@fastify/static';
+import path from 'node:path';
+import fs from 'node:fs';
 import { roomsRoutes } from './routes/rooms.js';
 import { recapRoutes } from './routes/recap.js';
 import { livekitRoutes } from './routes/livekit.js';
@@ -30,6 +33,31 @@ await app.register(roomsRoutes);
 await app.register(recapRoutes);
 await app.register(livekitRoutes);
 
+// ---- Static frontend (production) ----
+// Serve the built Vite app from dist/ with SPA fallback. Skip if dist is
+// missing (e.g. API-only mode or local dev via scripts/dev.mjs).
+const staticDir = process.env.STATIC_DIR ?? path.resolve(process.cwd(), 'dist');
+if (fs.existsSync(path.join(staticDir, 'index.html'))) {
+  await app.register(fastifyStatic, {
+    root: staticDir,
+    prefix: '/',
+    wildcard: false,
+  });
+
+  // SPA fallback: any non-API GET returns index.html (client-side routing)
+  app.setNotFoundHandler((req, reply) => {
+    if (req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/ws')) {
+      return reply.sendFile('index.html');
+    }
+    return reply.code(404).send({ error: 'Not found' });
+  });
+  app.log.info(`Serving static frontend from ${staticDir}`);
+} else {
+  app.log.warn(`No dist/index.html found at ${staticDir} — API-only mode`);
+}
+
+// In production (docker) Railway injects PORT; in dev scripts/dev.mjs runs the
+// backend on 3001. The host binding stays 0.0.0.0 so the platform proxy can reach us.
 const port = Number(process.env.PORT ?? 3001);
 app.listen({ port, host: '0.0.0.0' }, (err) => {
   if (err) {

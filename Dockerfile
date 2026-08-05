@@ -1,21 +1,14 @@
-# MeetPlay — single-container deploy image.
+# MeetPlay — production single-container image.
 #
-# Runs the full stack in ONE container via the same orchestrator as local dev:
-#   - Vite dev server  :5173  (proxies /api, /ws, /rtc to the backend/LiveKit)
-#   - Fastify backend  :3001  (in-memory DB by default — zero external deps)
-#   - LiveKit server   :7880  (auto-installed + started by scripts/dev.mjs)
+# Builds the frontend (vite build -> dist/) and runs the Fastify backend which
+# serves: static frontend (SPA fallback) + REST API + WebSocket, all on ONE port.
+# Browser talks to one origin — no CORS, no proxy, no WebSocket edge issues.
+# LiveKit Cloud URL/key/secret are committed fallbacks (no .env needed).
 #
-# The browser only ever talks to :5173 — same-origin, no CORS, no WebSocket
-# edge issues on hosts that support WS upgrades (Railway, Render, Fly, VPS).
-#
-# Deploy: point your PaaS at this Dockerfile and expose port 5173.
-# For a production Postgres, set DATABASE_URL and USE_MEMORY_DB=0.
+# Deploy: point your PaaS (Railway/Render/Fly) at this Dockerfile.
+# The server listens on $PORT (Railway injects it) at 0.0.0.0.
 
 FROM node:20-slim
-
-# curl + bash are needed by scripts/dev.mjs (LiveKit auto-install + probe)
-RUN apt-get update && apt-get install -y --no-install-recommends curl bash \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -27,11 +20,13 @@ RUN npm ci
 # Copy source
 COPY . .
 
-# The dev orchestrator is also the runtime orchestrator here: it starts
-# backend + vite + (auto-installed) LiveKit and proxies everything through :5173.
-EXPOSE 5173
+# Build the frontend -> dist/ and compile the server -> server/dist/
+RUN npm run build && cd server && npx tsc -p tsconfig.json
 
 # In-memory DB unless DATABASE_URL is provided
 ENV USE_MEMORY_DB=1
 
-CMD ["npm", "run", "dev"]
+# Server listens on $PORT (Railway injects it; default 3001)
+EXPOSE 3001
+
+CMD ["node", "server/dist/index.js"]

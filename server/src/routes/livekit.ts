@@ -7,7 +7,7 @@ import { connect } from 'net';
  * falling back to a local dev server.
  */
 function resolveProbeTarget(): { host: string; port: number } {
-  const url = process.env.LIVEKIT_URL;
+  const url = process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud';
   if (url) {
     try {
       const parsed = new URL(url);
