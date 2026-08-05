@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LuGamepad2, LuTrophy } from 'react-icons/lu';
 import type { GameRound, LeaderboardEntry } from '../../types/games';
 import { getGameTypeLabel, isGameType } from '../../lib/games/engine';
 import WhoSaidThat from './WhoSaidThat';
@@ -61,7 +62,7 @@ function ActiveRoundView({
     return (
       <div className="p-4 text-center space-y-2">
         <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center mx-auto">
-          <span className="text-xl font-heading font-semibold text-primary">🎮</span>
+          <LuGamepad2 className="w-6 h-6 text-primary" />
         </div>
         <p className="text-sm text-foreground">No active round</p>
         <p className="text-xs text-muted">Rounds start automatically as the conversation flows. Keep talking!</p>
@@ -76,7 +77,7 @@ function ActiveRoundView({
     return (
       <div className="p-4 text-center space-y-3">
         <div className="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center mx-auto">
-          <span className="text-2xl">🏆</span>
+          <LuTrophy className="w-7 h-7 text-success" />
         </div>
         <h4 className="text-base font-heading font-semibold text-foreground">
           {isGameType(gameType) ? getGameTypeLabel(gameType) : gameType}

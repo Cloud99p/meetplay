@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { FiClock } from 'react-icons/fi';
 import type { GameRound } from '../../types/games';
 import { getRoundTimeRemaining, formatTime } from '../../lib/games/engine';
 
@@ -34,7 +35,7 @@ export default function WhoSaidThat({ round, onSubmit, disabled }: Props) {
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-muted uppercase tracking-wider">Who Said That?</h4>
-        <span className="text-sm font-mono text-warning">⏱ {formatTime(timeLeft)}</span>
+        <span className="text-sm font-mono text-warning flex items-center gap-1"><FiClock className="w-3.5 h-3.5" />{formatTime(timeLeft)}</span>
       </div>
 
       <blockquote className="border-l-4 border-primary bg-bg-elevated rounded-r-lg px-4 py-3 text-foreground text-sm italic leading-relaxed">
@@ -59,7 +60,7 @@ export default function WhoSaidThat({ round, onSubmit, disabled }: Props) {
               ].join(' ')}
             >
               <span className="flex items-center gap-2">
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-heading font-semibold ${isSelected || isCorrect ? 'bg-current/20' : 'bg-bg-elevated text-muted'}`}>
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-heading font-semibold ${isSelected || isCorrect ? 'bg-primary/20 text-primary' : 'bg-bg-elevated text-muted'}`}>
                   {opt.name.charAt(0).toUpperCase()}
                 </span>
                 {opt.name}
@@ -71,7 +72,7 @@ export default function WhoSaidThat({ round, onSubmit, disabled }: Props) {
 
       {round.state === 'scored' && (
         <p className="text-xs text-muted text-center pt-1">
-          {selected === question.speakerId ? 'Correct! 🎉' : `Answer: ${question.options.find((o) => o.id === question.speakerId)?.name}`}
+          {selected === question.speakerId ? 'Correct!' : `Answer: ${question.options.find((o) => o.id === question.speakerId)?.name}`}
         </p>
       )}
     </div>

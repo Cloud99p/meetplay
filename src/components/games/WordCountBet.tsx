@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { FiClock, FiCheck } from 'react-icons/fi';
 import type { GameRound } from '../../types/games';
 import { getRoundTimeRemaining, formatTime } from '../../lib/games/engine';
 import { isWordCountBetQuestion } from '../../lib/games/wordCountBet';
@@ -39,7 +40,7 @@ export default function WordCountBet({ round, onSubmit, disabled }: Props) {
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-muted uppercase tracking-wider">Word Count Bet</h4>
-        <span className="text-sm font-mono text-warning">⏱ {formatTime(timeLeft)}</span>
+        <span className="text-sm font-mono text-warning flex items-center gap-1"><FiClock className="w-3.5 h-3.5" />{formatTime(timeLeft)}</span>
       </div>
 
       <div className="text-center py-4 bg-bg-elevated rounded-lg border border-border">
@@ -64,7 +65,7 @@ export default function WordCountBet({ round, onSubmit, disabled }: Props) {
             disabled={disabled || round.state !== 'open' || submitted}
             className="px-5 py-2 bg-primary hover:bg-primary-hover text-on-primary font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm active:scale-[0.98]"
           >
-            {submitted ? 'Locked ✓' : 'Bet'}
+            {submitted ? <span className="flex items-center gap-1 justify-center"><FiCheck className="w-4 h-4" /> Locked</span> : 'Bet'}
           </button>
         </div>
         {round.state === 'scored' && (

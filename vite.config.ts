@@ -38,7 +38,7 @@ export default defineConfig(() => ({
     {
       name: 'livekit-v1-fallback',
       configureServer(server) {
-        server.httpServer?.on('upgrade', (req, socket, head) => {
+        server.httpServer?.on('upgrade', (req, socket, _head) => {
           const url = req.url ?? '';
           if (url.startsWith('/rtc/v1')) {
             socket.write(

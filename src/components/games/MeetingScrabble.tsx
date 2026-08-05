@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FiPlus, FiX } from 'react-icons/fi';
+import { FiPlus, FiX, FiClock, FiCheck } from 'react-icons/fi';
 import type { GameRound } from '../../types/games';
 import { getRoundTimeRemaining, formatTime } from '../../lib/games/engine';
 import { isScrabbleQuestion } from '../../lib/games/scrabble';
@@ -43,7 +43,7 @@ export default function MeetingScrabble({ round, onSubmit, disabled }: Props) {
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-muted uppercase tracking-wider">Meeting Scrabble</h4>
-        <span className="text-sm font-mono text-warning">⏱ {formatTime(timeLeft)}</span>
+        <span className="text-sm font-mono text-warning flex items-center gap-1"><FiClock className="w-3.5 h-3.5" />{formatTime(timeLeft)}</span>
       </div>
 
       <div>
@@ -106,7 +106,7 @@ export default function MeetingScrabble({ round, onSubmit, disabled }: Props) {
         disabled={disabled || round.state !== 'open' || submittedRef.current}
         className="w-full py-2.5 bg-secondary hover:opacity-90 text-on-primary font-medium rounded-lg transition-opacity disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm active:scale-[0.98]"
       >
-        {submittedRef.current ? 'Submitted ✓' : `Submit ${myWords.length} word${myWords.length === 1 ? '' : 's'}`}
+        {submittedRef.current ? <span className="flex items-center gap-1 justify-center"><FiCheck className="w-4 h-4" /> Submitted ({myWords.length})</span> : `Submit ${myWords.length} word${myWords.length === 1 ? '' : 's'}`}
       </button>
     </div>
   );
