@@ -1,0 +1,105 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Dark meeting UI — calm blues & purples */
+  --color-bg-base: oklch(0.141 0.034 264.95);
+  --color-bg-surface: oklch(0.18 0.043 264.95);
+  --color-bg-elevated: oklch(0.22 0.05 264.95);
+  --color-primary: oklch(0.62 0.14 252.5);
+  --color-primary-hover: oklch(0.68 0.14 252.5);
+  --color-secondary: oklch(0.65 0.16 285);
+  --color-accent: oklch(0.7 0.12 182.5);
+  --color-on-primary: oklch(1 0 0);
+  --color-foreground: oklch(0.92 0.01 264.95);
+  --color-muted: oklch(0.64 0.02 264.95);
+  --color-border: oklch(0.28 0.04 264.95);
+  --color-destructive: oklch(0.62 0.2 27.33);
+  --color-success: oklch(0.62 0.2 145);
+  --color-warning: oklch(0.7 0.18 85);
+  --color-ring: oklch(0.62 0.14 252.5);
+  --color-caption-bg: oklch(0 0 0 / 0.55);
+  --color-overlay: oklch(0 0 0 / 0.6);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    background-color: var(--color-bg-base);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* Scrollbar styling for dark meeting UI */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.3 0.04 264.95);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.4 0.04 264.95);
+}
+
+/* Meeting layout utilities */
+.meeting-layout {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  height: 100vh;
+  background: var(--color-bg-base);
+}
+
+.video-grid {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  height: 100%;
+}
+
+/* Animated pulse for live indicator */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Captions fade-in */
+@keyframes caption-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.caption-enter {
+  animation: caption-in 0.2s ease-out;
+}
+
+/* Consent banner slide */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-down {
+  animation: slide-down 0.3s ease-out;
+}

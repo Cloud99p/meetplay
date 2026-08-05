@@ -1,0 +1,211 @@
+import type { FastifyInstance } from 'fastify';
+import {
+  createRoom,
+  getRoomById,
+  getParticipantById,
+  addParticipant,
+  getParticipantsByRoom,
+  getChatMessages,
+  updateRoom,
+  deleteTranscriptEvents,
+  setRoomHost,
+} from '../db/queries.js';
+import { hashPassword, verifyPassword } from '../utils/password.js';
+import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
+import { mintJoinToken } from '../livekit/token.js';
+
+const MAX_PARTICIPANTS = 50;
+
+export async function roomsRoutes(app: FastifyInstance) {
+  // Create a room
+  app.post('/api/rooms', async (req, reply) => {
+    const body = (req.body ?? {}) as { name?: string; password?: string };
+    const name = typeof body.name === 'string' ? body.name.trim() : undefined;
+    const password = typeof body.password === 'string' ? body.password : undefined;
+
+    const passwordHash = password ? await hashPassword(password) : undefined;
+    const room = await createRoom({ name, passwordHash });
+
+    // Host joins automatically at creation
+    const host = await addParticipant({
+      roomId: room.id,
+      name: 'Host',
+      isHost: true,
+    });
+    await setRoomHost(room.id, host.id);
+
+    const token = generateRoomToken({
+      roomId: room.id,
+      participantId: host.id,
+      participantName: host.name,
+      isHost: true,
+    });
+
+    return reply.code(201).send({
+      room: {
+        id: room.id,
+        name: room.name,
+        hasPassword: Boolean(room.password_hash),
+        state: room.state,
+        transcriptionEnabled: room.transcription_enabled,
+      },
+      participant: {
+        id: host.id,
+        name: host.name,
+        isHost: true,
+      },
+      token,
+      livekitUrl: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
+    });
+  });
+
+  // Get room info (for join page)
+  app.get('/api/rooms/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const room = await getRoomById(id);
+    if (!room) return reply.code(404).send({ error: 'Room not found' });
+    const participants = await getParticipantsByRoom(id);
+    return {
+      room: {
+        id: room.id,
+        name: room.name,
+        hasPassword: Boolean(room.password_hash),
+        state: room.state,
+        transcriptionEnabled: room.transcription_enabled,
+        participantCount: participants.length,
+      },
+    };
+  });
+
+  // Join a room
+  app.post('/api/rooms/:id/join', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { name?: string; password?: string };
+
+    const room = await getRoomById(id);
+    if (!room) return reply.code(404).send({ error: 'Room not found' });
+    if (room.state !== 'active') {
+      return reply.code(403).send({ error: 'Room is locked or ended' });
+    }
+
+    const participants = await getParticipantsByRoom(id);
+    if (participants.length >= MAX_PARTICIPANTS) {
+      return reply.code(403).send({ error: 'Room at capacity' });
+    }
+
+    if (room.password_hash) {
+      const password = body.password ?? '';
+      const ok = await verifyPassword(password, room.password_hash);
+      if (!ok) return reply.code(401).send({ error: 'Wrong password' });
+    }
+
+    const name =
+      typeof body.name === 'string' && body.name.trim()
+        ? body.name.trim().slice(0, 40)
+        : `Guest ${participants.length + 1}`;
+
+    const participant = await addParticipant({
+      roomId: id,
+      name,
+      isHost: false,
+    });
+
+    const token = generateRoomToken({
+      roomId: id,
+      participantId: participant.id,
+      participantName: participant.name,
+      isHost: false,
+    });
+
+    return reply.code(201).send({
+      room: {
+        id: room.id,
+        name: room.name,
+        hasPassword: Boolean(room.password_hash),
+        state: room.state,
+        transcriptionEnabled: room.transcription_enabled,
+      },
+      participant: {
+        id: participant.id,
+        name: participant.name,
+        isHost: false,
+      },
+      token,
+      livekitUrl: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
+    });
+  });
+
+  // Get room messages (for late joiners / reload)
+  app.get('/api/rooms/:id/messages', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const room = await getRoomById(id);
+    if (!room) return reply.code(404).send({ error: 'Room not found' });
+    const messages = await getChatMessages(id);
+    return { messages };
+  });
+
+  // Mint a LiveKit join token (requires room token)
+  app.post('/api/rooms/:id/livekit-token', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+
+    const payload = auth ? verifyRoomToken(auth) : null;
+    if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
+    if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
+
+    const participant = await getParticipantById(payload.participantId);
+    if (!participant) return reply.code(404).send({ error: 'Participant not found' });
+
+    const token = await mintJoinToken({
+      roomName: id,
+      identity: participant.livekit_identity ?? participant.id,
+      participantName: participant.name,
+    });
+    return reply.send({ token });
+  });
+
+  // End meeting (host only)
+  app.post('/api/rooms/:id/end', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const payload = auth ? verifyRoomToken(auth) : null;
+    if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
+    if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
+
+    const participant = await getParticipantById(payload.participantId);
+    if (!participant || !participant.is_host) {
+      return reply.code(403).send({ error: 'Host only' });
+    }
+
+    await updateRoom(id, { state: 'ended', ended_at: new Date().toISOString() });
+    await deleteTranscriptEvents(id);
+    return reply.send({ ok: true });
+  });
+
+  // Toggle transcription (host only)
+  app.post('/api/rooms/:id/transcript/toggle', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { enabled?: boolean };
+    const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const payload = auth ? verifyRoomToken(auth) : null;
+    if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
+    if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
+
+    const participant = await getParticipantById(payload.participantId);
+    if (!participant || !participant.is_host) {
+      return reply.code(403).send({ error: 'Host only' });
+    }
+
+    const enabled = Boolean(body.enabled);
+    await updateRoom(id, { transcription_enabled: enabled });
+    return reply.send({ enabled });
+  });
+
+  // Validate a room token (used by WS upgrade)
+  app.post('/api/rooms/validate-token', async (req, reply) => {
+    const body = (req.body ?? {}) as { token?: string };
+    const payload = body.token ? verifyRoomToken(body.token) : null;
+    if (!payload) return reply.code(401).send({ error: 'Invalid token' });
+    return reply.send({ valid: true, payload });
+  });
+}

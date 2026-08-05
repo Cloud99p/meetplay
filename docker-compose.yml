@@ -1,0 +1,63 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: meetplay
+      POSTGRES_USER: meetplay
+      POSTGRES_PASSWORD: meetplay_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meetplay"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit/livekit.yaml
+    ports:
+      - "7880:7880"
+
+  server:
+    build: ./server
+    environment:
+      DATABASE_URL: postgresql://meetplay:meetplay_dev@postgres:5432/meetplay
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecret
+      LIVEKIT_HOST: livekit:7880
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - server
+    environment:
+      VITE_SERVER_URL: http://localhost:3001
+      VITE_LIVEKIT_URL: ws://localhost:7880
+    develop:
+      watch:
+        - path: ./src
+          action: sync
+        - path: ./package.json
+          action: rebuild
+
+volumes:
+  postgres_data:
