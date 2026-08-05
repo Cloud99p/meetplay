@@ -5,29 +5,22 @@ The app is a **single-container** deployment: Vite dev server (:5173) proxies
 The browser only talks to **one origin**, which avoids CORS and WebSocket edge
 problems. The container auto-installs and starts LiveKit on first boot.
 
-## Quick start (local)
-
-```bash
-npm install
-npm run dev        # starts backend :3001 + vite :5173 + auto-installs LiveKit :7880
-```
-
-Open http://localhost:5173 → create a room as Host → click **CC** (captions) →
-mock captions stream → games auto-start (~8 utterances in). Two browser tabs =
-two participants.
-
 ## Deploy to Railway (recommended — free, WebSocket-friendly, 1 click)
 
-1. Push this repo to GitHub.
-2. Railway → **New Project** → **Deploy from GitHub repo**.
-3. Railway auto-detects the `Dockerfile` (single container).
-4. **No env vars required** (in-memory DB + auto-installed LiveKit). Optional:
-   - `DATABASE_URL` (Postgres) + `USE_MEMORY_DB=0` for persistence
-   - `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` for LiveKit Cloud
-5. Expose port **5173** → Railway gives you a public URL. Done.
+This repo already includes `railway.json` (Dockerfile builder, `/health` probe).
 
-> If the LiveKit auto-install fails on a host, video/audio degrade gracefully
-> (banner) while chat/captions/games still work.
+1. Push this repo to GitHub (it's already at github.com/Cloud99p/meetplay).
+2. Railway → **New Project** → **Deploy from GitHub repo** → pick `Cloud99p/meetplay`.
+3. Railway auto-detects `railway.json` + `Dockerfile` (single container).
+4. **No env vars required** — LiveKit Cloud URL/key/secret are committed as
+   fallbacks; in-memory DB is the default. Optional:
+   - `DATABASE_URL` + `USE_MEMORY_DB=0` for Postgres persistence
+5. Railway exposes port **5173** (from `EXPOSE`), health-checks `/health`, and
+   gives you a public URL. Done.
+
+> ⚠️ Rotate the LiveKit Cloud API secret in the LiveKit dashboard after the
+> buildathon — the fallback key/secret is intentionally visible in the repo
+> so previews/deployments work without `.env`.
 
 ## Deploy to Render / Fly.io / any VPS
 
@@ -39,12 +32,12 @@ two participants.
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `PORT` | `3001` | Backend port (internal) |
+| `PORT` | `3001` (via `BACKEND_PORT`) | Backend port (internal) — decoupled from Railway's injected `PORT` |
 | `USE_MEMORY_DB` | `1` | In-memory DB; set `0` + `DATABASE_URL` for Postgres |
 | `DATABASE_URL` | — | Postgres connection string |
 | `JWT_SECRET` | dev secret | Room token signing — **set a real one in prod** |
-| `LIVEKIT_URL` | `ws://localhost:7880` | External LiveKit (e.g. LiveKit Cloud) |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | dev keys | Must match the LiveKit server keys |
+| `LIVEKIT_URL` | `wss://meetplay-3pba3wsu.livekit.cloud` | LiveKit server URL (cloud or local) |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | committed fallbacks | Must match the LiveKit server keys |
 | `VITE_SERVER_URL` | `''` (same-origin) | Override API/WS base URL (not needed single-container) |
 | `VITE_LIVEKIT_URL` | — | Client-side LiveKit URL override (baked at build time) |
 

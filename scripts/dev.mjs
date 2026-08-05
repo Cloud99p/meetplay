@@ -28,7 +28,9 @@ const serverEnv = {
   LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? 'APIHBwo5VwnwMag',
   LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? 'Re9hGufUrm4TBOxwqGXcIegfe2KmgaYdEzQUWyc4LNLB',
   LIVEKIT_URL: process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud',
-  PORT: process.env.PORT ?? '3001',
+  // Backend port is decoupled from PORT (Railway injects PORT for the public
+  // entry; we keep the backend on 3001 and expose Vite on 5173).
+  PORT: process.env.BACKEND_PORT ?? '3001',
 };
 
 const LIVEKIT_HTTP_PORT = 7880;
@@ -101,7 +103,7 @@ const server = spawn('npx', ['tsx', 'server/src/index.ts'], {
   shell: process.platform === 'win32',
 });
 
-const vite = spawn('npx', ['vite'], {
+const vite = spawn('npx', ['vite', '--host', '0.0.0.0', '--port', '5173'], {
   stdio: 'inherit',
   env: process.env,
   shell: process.platform === 'win32',
