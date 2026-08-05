@@ -216,6 +216,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         onToggleParticipants={() => { setShowChat(false); setShowGames(false); setShowParticipants(!showParticipants); }}
         onToggleTranscription={() => actions.toggleTranscription(!state.transcriptionEnabled)}
         onRaiseHand={() => actions.toggleHand(true)}
+        onSendEmoji={actions.sendEmoji}
         onLeave={onLeave}
         showChat={showChat}
         showParticipants={showParticipants}

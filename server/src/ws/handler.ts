@@ -213,7 +213,7 @@ async function handleMessage(
       if (!emoji) return;
       channelManager.broadcast(roomId, {
         type: 'emoji:received',
-        payload: { participantId: senderId, emoji },
+        payload: { participantId: senderId, participantName: sender.name, emoji },
       });
       break;
     }

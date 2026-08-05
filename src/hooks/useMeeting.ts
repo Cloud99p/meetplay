@@ -147,6 +147,19 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     );
 
     unsubs.push(
+      ws.on('emoji:received', (payload: { participantId: string; participantName?: string; emoji: string }) => {
+        const msg: ChatMessage = {
+          id: `emoji-${payload.participantId}-${Date.now()}`,
+          participantId: payload.participantId,
+          participantName: payload.participantName ?? 'Someone',
+          content: payload.emoji,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, msg]);
+      })
+    );
+
+    unsubs.push(
       ws.on('caption:event', (payload: MeetingState['captions'][number]) => {
         setCaptions((prev) => [...prev.slice(-60), payload]);
       })

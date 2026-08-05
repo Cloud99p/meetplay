@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiMonitor, FiMessageSquare, FiUsers,
@@ -6,6 +7,8 @@ import {
 import { LuHand } from 'react-icons/lu';
 import { useLocalParticipant } from '@livekit/components-react';
 import { Track } from 'livekit-client';
+
+const QUICK_EMOJIS = ['👍', '😂', '❤️', '🎉', '🤔', '👏', '🙌', '🔥'];
 
 interface Props {
   isHost: boolean;
@@ -17,6 +20,7 @@ interface Props {
   onToggleParticipants?: () => void;
   onToggleTranscription?: () => void;
   onRaiseHand?: () => void;
+  onSendEmoji?: (emoji: string) => void;
   onLeave?: () => void;
   showChat: boolean;
   showParticipants: boolean;
@@ -32,6 +36,7 @@ export default function ControlBar({
   onToggleParticipants,
   onToggleTranscription,
   onRaiseHand,
+  onSendEmoji,
   onLeave,
   showChat,
   showParticipants,
@@ -39,6 +44,7 @@ export default function ControlBar({
   const { localParticipant } = useLocalParticipant();
   const micPub = localParticipant?.getTrackPublication(Track.Source.Microphone);
   const camPub = localParticipant?.getTrackPublication(Track.Source.Camera);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const isMicOn = !micPub?.isMuted;
   const isCamOn = !camPub?.isMuted;
@@ -69,9 +75,32 @@ export default function ControlBar({
       </button>
 
       {/* Emoji quick reaction */}
-      <button onClick={() => {}} className={btnClass} title="React">
-        <FiSmile className="w-4 h-4" />
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => setShowEmojiPicker((v) => !v)}
+          className={`${btnClass} ${showEmojiPicker ? 'bg-primary/20 text-primary' : ''}`}
+          title="React"
+        >
+          <FiSmile className="w-4 h-4" />
+        </button>
+        {showEmojiPicker && (
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex gap-1 p-2 bg-bg-elevated border border-border rounded-lg shadow-lg z-50">
+            {QUICK_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => {
+                  onSendEmoji?.(emoji);
+                  setShowEmojiPicker(false);
+                }}
+                className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-border transition-colors cursor-pointer text-xl"
+                title={emoji}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="w-px h-6 bg-border mx-1" />
 

@@ -39,7 +39,7 @@ export type TClientMessage = z.infer<typeof ClientMessage>;
 
 export type ServerMessage =
   | { type: 'chat:received'; payload: { id: string; participantId: string; participantName: string; content: string; createdAt: string } }
-  | { type: 'emoji:received'; payload: { participantId: string; emoji: string } }
+  | { type: 'emoji:received'; payload: { participantId: string; participantName: string; emoji: string } }
   | { type: 'hand:raised'; payload: { participantId: string; participantName: string } }
   | { type: 'hand:lowered'; payload: { participantId: string } }
   | { type: 'caption:event'; payload: { speakerId: string; participantName: string | null; text: string; isFinal: boolean; timestamp: number } }
