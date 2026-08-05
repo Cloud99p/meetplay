@@ -18,6 +18,7 @@ export interface CreateRoomResult {
   participant: { id: string; name: string; isHost: boolean };
   token: string;
   livekitUrl: string;
+  livekitAvailable?: boolean;
 }
 
 export interface JoinRoomResult {
@@ -31,6 +32,7 @@ export interface JoinRoomResult {
   participant: { id: string; name: string; isHost: boolean };
   token: string;
   livekitUrl: string;
+  livekitAvailable?: boolean;
 }
 
 export interface RecapData {

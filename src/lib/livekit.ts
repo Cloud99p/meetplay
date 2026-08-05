@@ -85,13 +85,15 @@ async function probeLiveKit(url: string): Promise<boolean> {
       .replace(/^ws:/, 'http:');
     const ctrl = new AbortController();
     const id = setTimeout(() => ctrl.abort(), 2_000);
-    await fetch(`${httpUrl}/rtc/validate`, {
+    const res = await fetch(`${httpUrl}/rtc/validate`, {
       method: 'GET',
       signal: ctrl.signal,
     });
     clearTimeout(id);
-    // Any response (even 401/403) means the server is reachable.
-    return true;
+    // A response below 500 means LiveKit responded directly (even a 404
+    // confirms it is reachable).  A 5xx (e.g. 502) means the Vite proxy
+    // could not reach the upstream target, so LiveKit is not running.
+    return res.status < 500;
   } catch {
     return false;
   }

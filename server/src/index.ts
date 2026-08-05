@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { roomsRoutes } from './routes/rooms.js';
 import { recapRoutes } from './routes/recap.js';
+import { livekitRoutes } from './routes/livekit.js';
 import { wsHandler } from './ws/handler.js';
 
 const app = Fastify({ logger: true });
@@ -27,6 +28,7 @@ app.get('/ws', { websocket: true }, wsHandler);
 
 await app.register(roomsRoutes);
 await app.register(recapRoutes);
+await app.register(livekitRoutes);
 
 const port = Number(process.env.PORT ?? 3001);
 app.listen({ port, host: '0.0.0.0' }, (err) => {

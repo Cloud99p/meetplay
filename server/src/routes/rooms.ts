@@ -13,6 +13,7 @@ import {
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
 import { mintJoinToken } from '../livekit/token.js';
+import { probeLiveKit } from './livekit.js';
 
 const MAX_PARTICIPANTS = 50;
 
@@ -25,6 +26,7 @@ export async function roomsRoutes(app: FastifyInstance) {
 
     const passwordHash = password ? await hashPassword(password) : undefined;
     const room = await createRoom({ name, passwordHash });
+    const livekitHealth = await probeLiveKit();
 
     // Host joins automatically at creation
     const host = await addParticipant({
@@ -56,6 +58,7 @@ export async function roomsRoutes(app: FastifyInstance) {
       },
       token,
       livekitUrl: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
+      livekitAvailable: livekitHealth.available,
     });
   });
 
@@ -117,6 +120,8 @@ export async function roomsRoutes(app: FastifyInstance) {
       isHost: false,
     });
 
+    const livekitHealth = await probeLiveKit();
+
     return reply.code(201).send({
       room: {
         id: room.id,
@@ -132,6 +137,7 @@ export async function roomsRoutes(app: FastifyInstance) {
       },
       token,
       livekitUrl: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
+      livekitAvailable: livekitHealth.available,
     });
   });
 

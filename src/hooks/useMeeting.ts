@@ -225,28 +225,35 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.connect(result.room.id, result.participant.id, result.token);
 
     // Connect LiveKit
-    const lkToken = await api.getLiveKitToken(
-      result.room.id,
-      result.participant.id,
-      result.participant.name || 'Host',
-      result.token
-    );
-    const { room: lkRoom, error } = await connectToLiveKit(
-      result.room.id,
-      result.participant.id,
-      result.participant.name || 'Host',
-      lkToken.token,
-      result.livekitUrl
-    );
-    if (error) {
-      console.error('[meeting] LiveKit connect error:', error);
-      setLivekitError(error);
+    if (result.livekitAvailable === false) {
+      // Server confirmed LiveKit is unreachable — skip the 8 s timeout
+      console.warn('[meeting] LiveKit not available (server-side check), skipping connection.');
+      setLivekitError('The media server is not running or unreachable.');
       setLiveKitConnected(false);
     } else {
-      setLivekitError(null);
-      setLiveKitConnected(true);
+      const lkToken = await api.getLiveKitToken(
+        result.room.id,
+        result.participant.id,
+        result.participant.name || 'Host',
+        result.token
+      );
+      const { room: lkRoom, error } = await connectToLiveKit(
+        result.room.id,
+        result.participant.id,
+        result.participant.name || 'Host',
+        lkToken.token,
+        result.livekitUrl
+      );
+      if (error) {
+        console.error('[meeting] LiveKit connect error:', error);
+        setLivekitError(error);
+        setLiveKitConnected(false);
+      } else {
+        setLivekitError(null);
+        setLiveKitConnected(true);
+      }
+      setLiveKitRoom(lkRoom);
     }
-    setLiveKitRoom(lkRoom);
 
     return result.room.id;
   }, [ws]);
@@ -274,28 +281,34 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     }
 
     // Connect LiveKit
-    const lkToken = await api.getLiveKitToken(
-      result.room.id,
-      result.participant.id,
-      result.participant.name,
-      result.token
-    );
-    const { room: lkRoom, error } = await connectToLiveKit(
-      result.room.id,
-      result.participant.id,
-      result.participant.name,
-      lkToken.token,
-      result.livekitUrl
-    );
-    if (error) {
-      console.error('[meeting] LiveKit connect error:', error);
-      setLivekitError(error);
+    if (result.livekitAvailable === false) {
+      console.warn('[meeting] LiveKit not available (server-side check), skipping connection.');
+      setLivekitError('The media server is not running or unreachable.');
       setLiveKitConnected(false);
     } else {
-      setLivekitError(null);
-      setLiveKitConnected(true);
+      const lkToken = await api.getLiveKitToken(
+        result.room.id,
+        result.participant.id,
+        result.participant.name,
+        result.token
+      );
+      const { room: lkRoom, error } = await connectToLiveKit(
+        result.room.id,
+        result.participant.id,
+        result.participant.name,
+        lkToken.token,
+        result.livekitUrl
+      );
+      if (error) {
+        console.error('[meeting] LiveKit connect error:', error);
+        setLivekitError(error);
+        setLiveKitConnected(false);
+      } else {
+        setLivekitError(null);
+        setLiveKitConnected(true);
+      }
+      setLiveKitRoom(lkRoom);
     }
-    setLiveKitRoom(lkRoom);
   }, [ws]);
 
   const sendChat = useCallback((content: string) => {
