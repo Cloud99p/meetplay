@@ -32,6 +32,23 @@ export default defineConfig(() => ({
       },
       include: '**/*.svg?react',
     }),
+    // Intercept WebSocket upgrades to /rtc/v1 and fail fast with a 404,
+    // so the LiveKit SDK's V1 → V0 fallback works through the Vite proxy
+    // (the http-proxy hangs when the upstream returns non-101 to an upgrade).
+    {
+      name: 'livekit-v1-fallback',
+      configureServer(server) {
+        server.httpServer?.on('upgrade', (req, socket, head) => {
+          const url = req.url ?? '';
+          if (url.startsWith('/rtc/v1')) {
+            socket.write(
+              'HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n',
+            );
+            socket.destroy();
+          }
+        });
+      },
+    },
   ],
   server: {
     allowedHosts: true as const,
@@ -50,8 +67,10 @@ export default defineConfig(() => ({
       // Proxy LiveKit WebSocket connections so the browser never connects
       // directly to the sandbox's localhost:7880 — it goes through the
       // same host that serves the page (Vite dev proxy or platform proxy).
+      // Target uses http:// so both WebSocket upgrades and HTTP validation
+      // requests (/rtc/validate) are forwarded to LiveKit on :7880.
       '/rtc': {
-        target: 'ws://localhost:7880',
+        target: 'http://localhost:7880',
         ws: true,
       },
     },
