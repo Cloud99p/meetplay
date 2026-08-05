@@ -1,7 +1,9 @@
 import { AccessToken } from 'livekit-server-sdk';
 
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY ?? 'devkey0123456789012345678901234567';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET ?? 'devsecret0123456789012345678901234';
+// LiveKit Cloud instance (committed fallback so previews without .env work).
+// ⚠️ ROTATE the API secret in the LiveKit dashboard after the buildathon.
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY ?? 'APIHBwo5VwnwMag';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET ?? 'Re9hGufUrm4TBOxwqGXcIegfe2KmgaYdEzQUWyc4LNLB';
 
 export async function mintJoinToken(opts: {
   roomName: string;

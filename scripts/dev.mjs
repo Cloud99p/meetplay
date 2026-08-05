@@ -22,9 +22,12 @@ const serverEnv = {
   ...process.env,
   USE_MEMORY_DB: '1',
   JWT_SECRET: process.env.JWT_SECRET ?? 'meetplay-dev-secret',
-  LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? 'devkey0123456789012345678901234567',
-  LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? 'devsecret0123456789012345678901234',
-  LIVEKIT_URL: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
+  // LiveKit Cloud instance (committed fallback so previews without .env work).
+  // ⚠️ ROTATE the API secret in the LiveKit dashboard after the buildathon —
+  // it is intentionally visible here so the nativelyai preview can reach the cloud.
+  LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? 'APIHBwo5VwnwMag',
+  LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? 'Re9hGufUrm4TBOxwqGXcIegfe2KmgaYdEzQUWyc4LNLB',
+  LIVEKIT_URL: process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud',
   PORT: process.env.PORT ?? '3001',
 };
 

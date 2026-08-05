@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+﻿import type { FastifyInstance } from 'fastify';
 import {
   createRoom,
   getRoomById,
@@ -57,7 +57,7 @@ export async function roomsRoutes(app: FastifyInstance) {
         isHost: true,
       },
       token,
-      livekitUrl: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
+      livekitUrl: process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud',
       livekitAvailable: livekitHealth.available,
     });
   });
@@ -136,7 +136,7 @@ export async function roomsRoutes(app: FastifyInstance) {
         isHost: false,
       },
       token,
-      livekitUrl: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
+      livekitUrl: process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud',
       livekitAvailable: livekitHealth.available,
     });
   });
