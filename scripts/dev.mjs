@@ -7,6 +7,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
+// Load .env (local secrets: LiveKit cloud keys etc.). Safe if missing.
+// process.loadEnvFile is available in Node >= 20.12.
+try {
+  if (fs.existsSync(path.resolve('.env'))) {
+    process.loadEnvFile(path.resolve('.env'));
+    console.log('[dev] Loaded .env');
+  }
+} catch (e) {
+  console.warn('[dev] Could not load .env:', e.message);
+}
+
 const serverEnv = {
   ...process.env,
   USE_MEMORY_DB: '1',
