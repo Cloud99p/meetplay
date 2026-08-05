@@ -1,8 +1,53 @@
-import { Room, RoomEvent, type RemoteParticipant } from 'livekit-client';
+import { Room, RoomEvent, type RemoteParticipant, type RoomConnectOptions } from 'livekit-client';
 
 export interface LiveKitConnection {
   room: Room;
   error?: string;
+}
+
+// LiveKit SDK's default connect timeout is 15s; we lower it so the UI
+// recovers faster when the media server isn't reachable. Retries are handled
+// explicitly by connectToLiveKitWithRetry below.
+const CONNECT_TIMEOUT_MS = 8_000;
+
+const CONNECT_OPTIONS: RoomConnectOptions = {
+  maxRetries: 0,
+  websocketTimeout: CONNECT_TIMEOUT_MS,
+  peerConnectionTimeout: CONNECT_TIMEOUT_MS,
+};
+
+const KNOWN_CONNECT_ERRORS: Array<{ pattern: string; friendly: string }> = [
+  {
+    pattern: 'Abort handler called',
+    friendly: 'Connection to the media server timed out. Check that LiveKit is running.',
+  },
+  {
+    pattern: 'Failed to fetch',
+    friendly: 'The media server is not running or unreachable.',
+  },
+  {
+    pattern: 'ECONNREFUSED',
+    friendly: 'The media server is not running or unreachable.',
+  },
+  {
+    pattern: 'server was not reachable',
+    friendly: 'The media server is not running or unreachable.',
+  },
+  {
+    pattern: 'could not establish pc connection',
+    friendly: 'Unable to establish a peer connection. Check your network and firewall.',
+  },
+];
+
+/**
+ * Normalise a raw LiveKit SDK error into a human-friendly string.
+ * Falls back to the original message if no known pattern matches.
+ */
+function normaliseError(msg: string): string {
+  for (const { pattern, friendly } of KNOWN_CONNECT_ERRORS) {
+    if (msg.includes(pattern)) return friendly;
+  }
+  return msg || 'Failed to connect to the media server';
 }
 
 /**
@@ -43,24 +88,47 @@ export async function connectToLiveKit(
   });
 
   try {
-    // identity and name are embedded in the LiveKit JWT by the server
-    await room.connect(livekitUrl, token);
+    // identity and name are embedded in the LiveKit JWT by the server.
+    // Timeout/retry options are passed per-connect (RoomConnectOptions).
+    await room.connect(livekitUrl, token, CONNECT_OPTIONS);
     return { room };
   } catch (e: any) {
     const msg = e?.message ?? '';
-    // Normalise common low-level errors into a human-friendly string
-    if (
-      msg.includes('Failed to fetch') ||
-      msg.includes('ECONNREFUSED') ||
-      msg.includes('server was not reachable')
-    ) {
-      return { room, error: 'The media server is not running or unreachable.' };
-    }
     return {
       room,
-      error: msg || 'Failed to connect to LiveKit',
+      error: normaliseError(msg),
     };
   }
+}
+
+/**
+ * Attempt to connect to LiveKit with a single retry — useful when the V1→V0
+ * fallback race causes a false-negative on the first attempt.
+ */
+export async function connectToLiveKitWithRetry(
+  roomName: string,
+  identity: string,
+  participantName: string,
+  token: string,
+  url?: string
+): Promise<LiveKitConnection> {
+  const first = await connectToLiveKit(roomName, identity, participantName, token, url);
+  if (!first.error) return first;
+
+  // Only retry on timeout/abort errors — not on permanent failures.
+  const retryable =
+    first.error.includes('timed out') ||
+    first.error.includes('unreachable') ||
+    first.error.includes('Connection to the media server');
+
+  if (!retryable) return first;
+
+  // Brief back-off so the proxy / server can stabilise
+  await new Promise((r) => setTimeout(r, 1_500));
+
+  const second = await connectToLiveKit(roomName, identity, participantName, token, url);
+  // Return the (possibly still failing) result — the MeetingRoom banner handles it.
+  return second;
 }
 
 export function disconnect(room: Room): void {
