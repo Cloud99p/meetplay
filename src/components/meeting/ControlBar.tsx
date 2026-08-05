@@ -45,6 +45,10 @@ export default function ControlBar({
   const micPub = localParticipant?.getTrackPublication(Track.Source.Microphone);
   const camPub = localParticipant?.getTrackPublication(Track.Source.Camera);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // Screen share needs getDisplayMedia (desktop only)
+  const [isTouchDevice] = useState(
+    () => typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
+  );
 
   const isMicOn = !micPub?.isMuted;
   const isCamOn = !camPub?.isMuted;
@@ -64,10 +68,12 @@ export default function ControlBar({
         {isCamOn ? <FiVideo className="w-4 h-4" /> : <FiVideoOff className="w-4 h-4" />}
       </button>
 
-      {/* Screen share */}
-      <button onClick={onToggleScreenShare} className={btnClass} title="Share screen">
-        <FiMonitor className="w-4 h-4" />
-      </button>
+      {/* Screen share (desktop only — hidden on touch devices) */}
+      {!isTouchDevice && (
+        <button onClick={onToggleScreenShare} className={btnClass} title="Share screen">
+          <FiMonitor className="w-4 h-4" />
+        </button>
+      )}
 
       {/* Raise hand */}
       <button onClick={onRaiseHand} className={btnClass} title="Raise hand">

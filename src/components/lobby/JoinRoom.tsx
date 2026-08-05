@@ -12,8 +12,15 @@ export default function JoinRoom({ roomId, onJoin, hasPassword }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Wrong-password lockout: max 3 attempts, then 30s cooldown
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState(0);
+
+  const lockoutSeconds = Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000));
+  const isLocked = lockoutSeconds > 0;
 
   const handleJoin = async () => {
+    if (isLocked) return;
     if (!name.trim()) {
       setError('Please enter your name');
       return;
@@ -23,7 +30,20 @@ export default function JoinRoom({ roomId, onJoin, hasPassword }: Props) {
     try {
       await onJoin(roomId, name.trim(), password || undefined);
     } catch (e: any) {
-      setError(e?.message ?? 'Failed to join room');
+      const msg = e?.message ?? 'Failed to join room';
+      if (msg.toLowerCase().includes('wrong password')) {
+        const attempts = failedAttempts + 1;
+        setFailedAttempts(attempts);
+        if (attempts >= 3) {
+          setLockedUntil(Date.now() + 30_000);
+          setFailedAttempts(0);
+          setError('Too many wrong password attempts. Try again in 30 seconds.');
+        } else {
+          setError(`Wrong password. ${3 - attempts} attempt${3 - attempts === 1 ? '' : 's'} left.`);
+        }
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -74,10 +94,14 @@ export default function JoinRoom({ roomId, onJoin, hasPassword }: Props) {
 
       <button
         onClick={handleJoin}
-        disabled={loading}
+        disabled={loading || isLocked}
         className="w-full py-2.5 bg-secondary hover:opacity-90 text-on-primary font-medium rounded-lg transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer text-sm"
       >
-        {loading ? 'Joining…' : 'Join Meeting'}
+        {isLocked
+          ? `Locked — try again in ${lockoutSeconds}s`
+          : loading
+            ? 'Joining…'
+            : 'Join Meeting'}
       </button>
     </div>
   );
