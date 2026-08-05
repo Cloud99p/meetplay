@@ -25,6 +25,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [showParticipants, setShowParticipants] = useState(false);
   const [showGames, setShowGames] = useState(false);
   const [consentShown, setConsentShown] = useState(false);
+  const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const mockRef = useRef<MockAdapter | null>(null);
   const { localParticipant } = useLocalParticipant();
@@ -80,8 +81,19 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
     if (!localParticipant) return;
     try {
       await localParticipant.setScreenShareEnabled(!localParticipant.isScreenShareEnabled);
-    } catch (e) {
+      setScreenShareError(null);
+    } catch (e: any) {
+      const msg = e?.message ?? '';
       console.error('[meeting] screen share error:', e);
+      // Permissions-Policy blocks getDisplayMedia (common in iframe previews)
+      if (msg.includes('display-capture') || msg.includes('NotAllowedError')) {
+        setScreenShareError(
+          'Screen share is blocked in this preview (permissions policy). ' +
+          'It works when the app is deployed to its own origin, e.g. Railway.'
+        );
+      } else {
+        setScreenShareError(msg || 'Screen share failed.');
+      }
     }
   }, [localParticipant]);
 
@@ -91,6 +103,23 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
     <div className="h-screen flex flex-col bg-bg-base">
       {/* Consent Banner */}
       <ConsentBanner visible={consentShown} onDismiss={() => setConsentShown(false)} />
+
+      {/* Screen share error banner (permissions policy in iframe previews) */}
+      {screenShareError && (
+        <div
+          role="alert"
+          className="flex items-center gap-3 px-4 py-2.5 bg-destructive/10 border-b border-destructive/30 text-sm text-foreground"
+        >
+          <FiAlertTriangle className="w-4 h-4 text-destructive flex-shrink-0" />
+          <p className="flex-1 min-w-0">{screenShareError}</p>
+          <button
+            onClick={() => setScreenShareError(null)}
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-bg-elevated hover:bg-border transition-colors cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* LiveKit unavailable banner — meeting still works in text mode */}
       {state.livekitError && !state.liveKitConnected && (
