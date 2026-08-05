@@ -20,7 +20,7 @@ const MAX_PARTICIPANTS = 50;
 export async function roomsRoutes(app: FastifyInstance) {
   // Create a room
   app.post('/api/rooms', async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: string; password?: string };
+    const body = (req.body ?? {}) as { name?: string; password?: string; userId?: string };
     const name = typeof body.name === 'string' ? body.name.trim() : undefined;
     const password = typeof body.password === 'string' ? body.password : undefined;
 
@@ -33,6 +33,7 @@ export async function roomsRoutes(app: FastifyInstance) {
       roomId: room.id,
       name: 'Host',
       isHost: true,
+      userId: body.userId,
     });
     await setRoomHost(room.id, host.id);
 
@@ -83,7 +84,12 @@ export async function roomsRoutes(app: FastifyInstance) {
   // Join a room
   app.post('/api/rooms/:id/join', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { name?: string; password?: string };
+    const body = (req.body ?? {}) as {
+      name?: string;
+      participantName?: string;
+      password?: string;
+      userId?: string;
+    };
 
     const room = await getRoomById(id);
     if (!room) return reply.code(404).send({ error: 'Room not found' });
@@ -103,14 +109,25 @@ export async function roomsRoutes(app: FastifyInstance) {
     }
 
     const name =
-      typeof body.name === 'string' && body.name.trim()
-        ? body.name.trim().slice(0, 40)
+      (typeof body.participantName === 'string' && body.participantName.trim()) ||
+      (typeof body.name === 'string' && body.name.trim())
+        ? ((body.participantName ?? body.name) as string).trim().slice(0, 40)
         : `Guest ${participants.length + 1}`;
+
+    // Identity check: display names must be unique per room. A reconnecting
+    // user (same userId) may rejoin under their existing name.
+    const nameTaken = participants.find(
+      (p) => p.name.toLowerCase() === name.toLowerCase() && !p.is_host
+    );
+    if (nameTaken && nameTaken.user_id !== (body.userId ?? null)) {
+      return reply.code(409).send({ error: 'Name already taken in this room' });
+    }
 
     const participant = await addParticipant({
       roomId: id,
       name,
       isHost: false,
+      userId: body.userId,
     });
 
     const token = generateRoomToken({

@@ -18,7 +18,8 @@ CREATE TABLE participants (
   is_host BOOLEAN DEFAULT false,
   is_muted BOOLEAN DEFAULT false,
   joined_at TIMESTAMPTZ DEFAULT now(),
-  livekit_identity TEXT UNIQUE
+  livekit_identity TEXT UNIQUE,
+  user_id TEXT
 );
 
 CREATE TABLE chat_messages (

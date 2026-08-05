@@ -21,6 +21,7 @@ export interface ParticipantRow {
   is_muted: boolean;
   joined_at: string;
   livekit_identity: string | null;
+  user_id: string | null;
 }
 
 export interface ChatMessageRow {
@@ -120,6 +121,7 @@ export async function addParticipant(opts: {
   roomId: string;
   name: string;
   isHost: boolean;
+  userId?: string;
 }) {
   const id = uuid();
   const row: ParticipantRow = {
@@ -130,6 +132,7 @@ export async function addParticipant(opts: {
     is_muted: false,
     joined_at: nowISO(),
     livekit_identity: uuid(),
+    user_id: opts.userId ?? null,
   };
   store.participants.set(id, row);
   return row;

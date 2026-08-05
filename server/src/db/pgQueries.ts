@@ -45,12 +45,13 @@ export async function addParticipant(opts: {
   roomId: string;
   name: string;
   isHost: boolean;
+  userId?: string;
 }) {
   const { rows } = await pool.query(
-    `INSERT INTO participants (room_id, name, is_host, livekit_identity)
-     VALUES ($1, $2, $3, gen_random_uuid()::text)
+    `INSERT INTO participants (room_id, name, is_host, livekit_identity, user_id)
+     VALUES ($1, $2, $3, gen_random_uuid()::text, $4)
      RETURNING *`,
-    [opts.roomId, opts.name, opts.isHost]
+    [opts.roomId, opts.name, opts.isHost, opts.userId ?? null]
   );
   return rows[0];
 }

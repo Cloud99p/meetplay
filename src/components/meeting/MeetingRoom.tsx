@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
-import { FiAlertTriangle } from 'react-icons/fi';
+import { FiAlertTriangle, FiLink } from 'react-icons/fi';
 import { MockAdapter } from '../../lib/stt/MockAdapter';
 import VideoGrid from './VideoGrid';
 import SpeakerView from './SpeakerView';
@@ -26,6 +26,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [showGames, setShowGames] = useState(false);
   const [consentShown, setConsentShown] = useState(false);
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const mockRef = useRef<MockAdapter | null>(null);
   const { localParticipant } = useLocalParticipant();
@@ -164,6 +165,20 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
           {/* Side panel buttons on video */}
           <div className="absolute top-4 right-4 flex gap-2">
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/#/join/${state.room?.id}`;
+                navigator.clipboard.writeText(url).then(() => {
+                  setInviteCopied(true);
+                  setTimeout(() => setInviteCopied(false), 2000);
+                });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated"
+              title="Copy invite link"
+            >
+              <FiLink className="w-3.5 h-3.5" />
+              {inviteCopied ? 'Link copied!' : 'Invite'}
+            </button>
             <button
               onClick={() => { setShowParticipants(false); setShowGames(false); setShowChat(!showChat); }}
               className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showChat ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}

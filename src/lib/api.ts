@@ -1,5 +1,6 @@
 import type { Room } from '../types/meeting';
 import type { ChatMessage } from '../types/chat';
+import { getUserId } from './identity';
 
 // Same-origin by default: the Vite dev proxy forwards /api and /ws to the
 // backend (see vite.config.ts + scripts/dev.mjs), so the browser never needs
@@ -106,7 +107,11 @@ export function clearRoomToken() {
 export async function createRoom(name?: string, password?: string): Promise<CreateRoomResult> {
   const result = await request<CreateRoomResult>('/api/rooms', {
     method: 'POST',
-    body: JSON.stringify({ name: name || undefined, password: password || undefined }),
+    body: JSON.stringify({
+      name: name || undefined,
+      password: password || undefined,
+      userId: getUserId(),
+    }),
   });
   storeRoomToken(result.token);
   return result;
@@ -119,7 +124,11 @@ export async function joinRoom(
 ): Promise<JoinRoomResult> {
   const result = await request<JoinRoomResult>(`/api/rooms/${roomId}/join`, {
     method: 'POST',
-    body: JSON.stringify({ participantName, password: password || undefined }),
+    body: JSON.stringify({
+      participantName,
+      password: password || undefined,
+      userId: getUserId(),
+    }),
   });
   storeRoomToken(result.token);
   return result;

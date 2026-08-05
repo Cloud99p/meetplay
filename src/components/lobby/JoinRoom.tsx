@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FiUserPlus, FiLock } from 'react-icons/fi';
+import { getSavedName, saveName } from '../../lib/identity';
 
 interface Props {
   roomId: string;
@@ -8,7 +9,7 @@ interface Props {
 }
 
 export default function JoinRoom({ roomId, onJoin, hasPassword }: Props) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState(getSavedName() ?? '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -28,6 +29,7 @@ export default function JoinRoom({ roomId, onJoin, hasPassword }: Props) {
     setLoading(true);
     setError('');
     try {
+      saveName(name.trim());
       await onJoin(roomId, name.trim(), password || undefined);
     } catch (e: any) {
       const msg = e?.message ?? 'Failed to join room';
