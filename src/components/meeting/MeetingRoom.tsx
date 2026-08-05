@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
+import { useStt } from '../../hooks/useStt';
 import { FiAlertTriangle, FiLink } from 'react-icons/fi';
-import { MockAdapter } from '../../lib/stt/MockAdapter';
 import VideoGrid from './VideoGrid';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
@@ -28,8 +28,16 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
-  const mockRef = useRef<MockAdapter | null>(null);
   const { localParticipant } = useLocalParticipant();
+
+  // Mock STT lifecycle: starts when transcription is on + room connected,
+  // wires utterances to the server, uses the local participant id as speaker.
+  useStt({
+    enabled: state.transcriptionEnabled,
+    connected: state.connected,
+    localParticipantId: state.participantId ?? undefined,
+    sendCaption: actions.sendCaption,
+  });
 
   // Show consent banner when transcription is first enabled
   useEffect(() => {
@@ -37,28 +45,6 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
       setConsentShown(true);
     }
   }, [state.transcriptionEnabled, consentShown]);
-
-  // Start mock STT when transcription is enabled
-  useEffect(() => {
-    if (state.transcriptionEnabled && !mockRef.current) {
-      const mock = new MockAdapter();
-      mock.onUtterance = (utterance) => {
-        actions.sendCaption(utterance.speakerId, utterance.text, utterance.isFinal);
-      };
-      mock.start();
-      mockRef.current = mock;
-    }
-    if (!state.transcriptionEnabled && mockRef.current) {
-      mockRef.current.stop();
-      mockRef.current = null;
-    }
-    return () => {
-      if (mockRef.current) {
-        mockRef.current.stop();
-        mockRef.current = null;
-      }
-    };
-  }, [state.transcriptionEnabled, actions]);
 
   const handleToggleMic = useCallback(async () => {
     if (!localParticipant) return;

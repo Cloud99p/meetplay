@@ -7,6 +7,7 @@ import {
 import { LuHand } from 'react-icons/lu';
 import { useLocalParticipant } from '@livekit/components-react';
 import { Track } from 'livekit-client';
+import TranscriptToggle from './TranscriptToggle';
 
 const QUICK_EMOJIS = ['👍', '😂', '❤️', '🎉', '🤔', '👏', '🙌', '🔥'];
 
@@ -18,7 +19,7 @@ interface Props {
   onToggleScreenShare?: () => void;
   onToggleChat?: () => void;
   onToggleParticipants?: () => void;
-  onToggleTranscription?: () => void;
+  onToggleTranscription?: (enabled?: boolean) => void;
   onRaiseHand?: () => void;
   onSendEmoji?: (emoji: string) => void;
   onLeave?: () => void;
@@ -112,13 +113,11 @@ export default function ControlBar({
 
       {/* Host: transcription toggle */}
       {isHost && (
-        <button
-          onClick={onToggleTranscription}
-          className={`${btnClass} ${transcriptionEnabled ? 'bg-primary/20 text-primary' : ''}`}
-          title={transcriptionEnabled ? 'Disable captions' : 'Enable captions'}
-        >
-          <span className="text-[10px] font-mono font-bold">CC</span>
-        </button>
+        <TranscriptToggle
+          isHost
+          enabled={transcriptionEnabled}
+          onToggle={async (enabled) => onToggleTranscription?.(enabled)}
+        />
       )}
 
       <div className="w-px h-6 bg-border mx-1" />
