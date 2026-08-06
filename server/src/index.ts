@@ -10,6 +10,7 @@ import { recapRoutes } from './routes/recap.js';
 import { livekitRoutes } from './routes/livekit.js';
 import { sttRoutes } from './routes/stt.js';
 import { wsHandler } from './ws/handler.js';
+import { runMigrations } from './db/migrate.js';
 
 const app = Fastify({ logger: true });
 const USE_MEMORY = !process.env.DATABASE_URL || process.env.USE_MEMORY_DB === '1';
@@ -34,6 +35,23 @@ await app.register(rateLimit, {
 });
 
 app.get('/health', async () => ({ ok: true, service: 'meetplay-server' }));
+
+// Apply schema migrations automatically at startup (idempotent, Postgres only).
+// Retries briefly so a slowly-starting Docker/RAILWAY DB doesn't leave the
+// schema un-migrated; the server still boots if the DB is unreachable.
+if (!USE_MEMORY) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await runMigrations();
+      app.log.info('[migrate] schema up to date');
+      break;
+    } catch (e) {
+      app.log.warn(`[migrate] attempt ${attempt}/5 failed — retrying in 3s: ${(e as Error)?.message ?? e}`);
+      if (attempt < 5) await new Promise((r) => setTimeout(r, 3000));
+      else app.log.error('[migrate] giving up after 5 attempts — schema may be incomplete');
+    }
+  }
+}
 
 // WebSocket endpoint for realtime meeting events
 app.get('/ws', { websocket: true }, wsHandler);
