@@ -8,14 +8,20 @@ import {
   updateRoom,
   removeParticipant,
   promoteToHost,
-  deleteTranscriptEvents,
   saveChatMessage,
   saveTranscriptEvent,
   updateParticipantMuted,
+  updateParticipantCamera,
 } from '../db/queries.js';
 import { channelManager } from './channels.js';
 import { encode, decode, type ServerMessage } from './messages.js';
 import { getGameEngine } from '../games/engine.js';
+import { endMeetingRoom } from '../endMeeting.js';
+import {
+  resolveLiveKitIdentity,
+  setParticipantMediaMuted,
+  removeParticipantFromLiveKit,
+} from '../livekit/moderation.js';
 
 // Track host disconnect timers: roomId -> { hostId, timer }
 const hostTimers = new Map<string, { hostId: string; timer: NodeJS.Timeout }>();
@@ -23,7 +29,7 @@ const hostTimers = new Map<string, { hostId: string; timer: NodeJS.Timeout }>();
 // Track active connections per room: roomId -> Set<participantId>
 const activeConnections = new Map<string, Set<string>>();
 
-const HOST_PROMOTION_TIMEOUT_MS = 30_000;
+const HOST_PROMOTION_TIMEOUT_MS = 60_000;
 
 function registerConnection(roomId: string, participantId: string) {
   let set = activeConnections.get(roomId);
@@ -62,6 +68,7 @@ async function sendRoomState(roomId: string, ws: WebSocket) {
           name: p.name,
           isHost: p.is_host,
           isMuted: p.is_muted,
+          isCameraOff: p.is_camera_off ?? false,
         })),
         transcriptionEnabled: room.transcription_enabled,
         roomState: room.state,
@@ -89,6 +96,10 @@ function scheduleHostPromotion(roomId: string, hostId: string) {
     if (isConnected(roomId, hostId)) return;
 
     try {
+      // Don't promote in a room that ended or was locked while the timer ran
+      const room = await getRoomById(roomId);
+      if (!room || room.state !== 'active') return;
+
       const participants = await getParticipantsByRoom(roomId);
       const candidate = participants.find((p: any) => p.id !== hostId);
       if (!candidate) return;
@@ -174,6 +185,14 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
 function cancelHostPromotion(roomId: string, participantId: string) {
   const existing = hostTimers.get(roomId);
   if (existing?.hostId === participantId) {
+    clearTimeout(existing.timer);
+    hostTimers.delete(roomId);
+  }
+}
+
+function cancelHostTimersForRoom(roomId: string) {
+  const existing = hostTimers.get(roomId);
+  if (existing) {
     clearTimeout(existing.timer);
     hostTimers.delete(roomId);
   }
@@ -289,11 +308,39 @@ async function handleMessage(
       const isHost = await checkIsHost(roomId, senderId);
       if (!isHost) return;
       const targetId = String(payload.targetId ?? '');
-      if (!targetId) return;
-      await updateParticipantMuted(targetId, true);
+      if (!targetId || targetId === senderId) return;
+      const muted = payload.muted !== false; // default: mute
+      const target = await updateParticipantMuted(targetId, muted);
+      // Enforce on the media server: the target's mic actually stops, even
+      // if their client ignores the signal below.
+      if (target) {
+        await setParticipantMediaMuted(roomId, resolveLiveKitIdentity(target), {
+          audio: muted,
+        });
+      }
       channelManager.broadcast(roomId, {
         type: 'participant:muted',
-        payload: { targetId, isMuted: true },
+        payload: { targetId, isMuted: muted },
+      });
+      break;
+    }
+
+    case 'participant:camera': {
+      const isHost = await checkIsHost(roomId, senderId);
+      if (!isHost) return;
+      const targetId = String(payload.targetId ?? '');
+      if (!targetId || targetId === senderId) return;
+      const cameraOff = payload.cameraOff !== false; // default: turn off
+      const target = await updateParticipantCamera(targetId, cameraOff);
+      // Enforce on the media server: the target's camera feed stops.
+      if (target) {
+        await setParticipantMediaMuted(roomId, resolveLiveKitIdentity(target), {
+          video: cameraOff,
+        });
+      }
+      channelManager.broadcast(roomId, {
+        type: 'participant:camera',
+        payload: { targetId, isCameraOff: cameraOff },
       });
       break;
     }
@@ -303,7 +350,12 @@ async function handleMessage(
       if (!isHost) return;
       const targetId = String(payload.targetId ?? '');
       if (!targetId || targetId === senderId) return;
+      const target = await getParticipantById(targetId);
       await removeParticipant(targetId);
+      if (target) {
+        // Hard-kick from media too, not just the signal layer.
+        await removeParticipantFromLiveKit(roomId, resolveLiveKitIdentity(target));
+      }
       channelManager.removeFromRoom(roomId, targetId);
       channelManager.broadcast(roomId, {
         type: 'participant:removed',
@@ -326,13 +378,8 @@ async function handleMessage(
     case 'room:end': {
       const isHost = await checkIsHost(roomId, senderId);
       if (!isHost) return;
-      await updateRoom(roomId, { state: 'ended', ended_at: new Date().toISOString() });
-      await deleteTranscriptEvents(roomId);
-      channelManager.broadcast(roomId, {
-        type: 'room:ended',
-        payload: {},
-      });
-      channelManager.closeRoom(roomId);
+      await endMeetingRoom(roomId);
+      cancelHostTimersForRoom(roomId);
       break;
     }
 

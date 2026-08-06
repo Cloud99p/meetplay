@@ -19,6 +19,7 @@ export interface ParticipantRow {
   name: string;
   is_host: boolean;
   is_muted: boolean;
+  is_camera_off: boolean;
   joined_at: string;
   livekit_identity: string | null;
   user_id: string | null;
@@ -130,6 +131,7 @@ export async function addParticipant(opts: {
     name: opts.name,
     is_host: opts.isHost,
     is_muted: false,
+    is_camera_off: false,
     joined_at: nowISO(),
     livekit_identity: uuid(),
     user_id: opts.userId ?? null,
@@ -188,6 +190,13 @@ export async function updateParticipantMuted(id: string, isMuted: boolean) {
   const p = store.participants.get(id);
   if (!p) return null;
   p.is_muted = isMuted;
+  return p;
+}
+
+export async function updateParticipantCamera(id: string, isCameraOff: boolean) {
+  const p = store.participants.get(id);
+  if (!p) return null;
+  p.is_camera_off = isCameraOff;
   return p;
 }
 

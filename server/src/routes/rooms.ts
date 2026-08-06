@@ -8,7 +8,6 @@ import {
   getParticipantsByRoom,
   getChatMessages,
   updateRoom,
-  deleteTranscriptEvents,
   setRoomHost,
 } from '../db/queries.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
@@ -16,6 +15,7 @@ import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
 import { mintJoinToken } from '../livekit/token.js';
 import { probeLiveKit } from './livekit.js';
 import { loadConfig } from '../config.js';
+import { endMeetingRoom } from '../endMeeting.js';
 
 const MAX_PARTICIPANTS = 50;
 const cfg = loadConfig();
@@ -153,7 +153,9 @@ export async function roomsRoutes(app: FastifyInstance) {
       roomId: id,
       participantId: participant.id,
       participantName: participant.name,
-      isHost: false,
+      // Preserve DB truth: a host reconnecting after a network blip keeps
+      // host powers (recovery reuses their participant row).
+      isHost: Boolean(participant.is_host),
     });
 
     const livekitHealth = await probeLiveKit();
@@ -169,7 +171,7 @@ export async function roomsRoutes(app: FastifyInstance) {
       participant: {
         id: participant.id,
         name: participant.name,
-        isHost: false,
+        isHost: Boolean(participant.is_host),
       },
       token,
       livekitUrl: cfg.livekitUrl,
@@ -219,8 +221,7 @@ export async function roomsRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'Host only' });
     }
 
-    await updateRoom(id, { state: 'ended', ended_at: new Date().toISOString() });
-    await deleteTranscriptEvents(id);
+    await endMeetingRoom(id);
     return reply.send({ ok: true });
   });
 

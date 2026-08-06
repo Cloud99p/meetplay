@@ -17,10 +17,14 @@ CREATE TABLE participants (
   name TEXT NOT NULL,
   is_host BOOLEAN DEFAULT false,
   is_muted BOOLEAN DEFAULT false,
+  is_camera_off BOOLEAN DEFAULT false,
   joined_at TIMESTAMPTZ DEFAULT now(),
   livekit_identity TEXT UNIQUE,
   user_id TEXT
 );
+
+-- Idempotent migration for existing deployments (re-running init.sql is safe)
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS is_camera_off BOOLEAN DEFAULT false;
 
 CREATE TABLE chat_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -33,6 +33,7 @@ export interface RoomStateSnapshot {
     name: string;
     isHost: boolean;
     isMuted: boolean;
+    isCameraOff: boolean;
   }>;
   transcriptionEnabled: boolean;
   roomState: 'active' | 'locked' | 'ended';

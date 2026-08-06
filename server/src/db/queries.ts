@@ -30,6 +30,7 @@ export const removeParticipant = impl.removeParticipant;
 export const promoteToHost = impl.promoteToHost;
 export const getFirstParticipant = impl.getFirstParticipant;
 export const updateParticipantMuted = impl.updateParticipantMuted;
+export const updateParticipantCamera = impl.updateParticipantCamera;
 
 // ─── Chat ───────────────────────────────────────────────────
 

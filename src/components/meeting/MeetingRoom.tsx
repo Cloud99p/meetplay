@@ -84,6 +84,16 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
     }
   }, [localParticipant]);
 
+  // Host: "End" ends the meeting for EVERYONE (server hard-ends the room and
+  // deletes the LiveKit room). Guest: "Leave" just exits this client.
+  const handleEndOrLeave = useCallback(() => {
+    if (state.isHost) {
+      actions.endMeeting();
+    } else {
+      onLeave();
+    }
+  }, [state.isHost, actions, onLeave]);
+
   const sidePanelOpen = showChat || showParticipants || showGames;
 
   return (
@@ -224,6 +234,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                 isHost={state.isHost}
                 currentId={state.participantId}
                 onMute={actions.muteParticipant}
+                onCamera={actions.setParticipantCamera}
                 onRemove={actions.removeParticipant}
               />
             )}
@@ -270,7 +281,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         onToggleTranscription={() => actions.toggleTranscription(!state.transcriptionEnabled)}
         onRaiseHand={() => actions.toggleHand(true)}
         onSendEmoji={actions.sendEmoji}
-        onLeave={onLeave}
+        onLeave={handleEndOrLeave}
         showChat={showChat}
         showParticipants={showParticipants}
       />

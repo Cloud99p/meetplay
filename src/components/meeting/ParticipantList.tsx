@@ -1,21 +1,23 @@
-import { FiVolume2, FiVolumeX, FiUserMinus, FiShield } from 'react-icons/fi';
+import { FiVolume2, FiVolumeX, FiVideo, FiVideoOff, FiUserMinus, FiShield } from 'react-icons/fi';
 
 interface Participant {
   id: string;
   name: string;
   isHost: boolean;
   isMuted: boolean;
+  isCameraOff: boolean;
 }
 
 interface Props {
   participants: Participant[];
   isHost: boolean;
   currentId: string | null;
-  onMute: (targetId: string) => void;
+  onMute: (targetId: string, muted: boolean) => void;
+  onCamera: (targetId: string, cameraOff: boolean) => void;
   onRemove: (targetId: string) => void;
 }
 
-export default function ParticipantList({ participants, isHost, currentId, onMute, onRemove }: Props) {
+export default function ParticipantList({ participants, isHost, currentId, onMute, onCamera, onRemove }: Props) {
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b border-border">
@@ -38,16 +40,29 @@ export default function ParticipantList({ participants, isHost, currentId, onMut
                   {isMe && (
                     <span className="text-[10px] text-muted">(you)</span>
                   )}
+                  {p.isMuted && (
+                    <FiVolumeX className="w-3 h-3 text-muted flex-shrink-0" title="Muted by host" />
+                  )}
+                  {p.isCameraOff && (
+                    <FiVideoOff className="w-3 h-3 text-muted flex-shrink-0" title="Camera off" />
+                  )}
                 </div>
               </div>
               {isHost && !isMe && (
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => onMute(p.id)}
+                    onClick={() => onMute(p.id, !p.isMuted)}
                     className="p-1.5 rounded-md hover:bg-bg-elevated text-muted hover:text-foreground transition-colors cursor-pointer"
                     title={p.isMuted ? 'Unmute' : 'Mute'}
                   >
                     {p.isMuted ? <FiVolumeX className="w-3.5 h-3.5" /> : <FiVolume2 className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => onCamera(p.id, !p.isCameraOff)}
+                    className="p-1.5 rounded-md hover:bg-bg-elevated text-muted hover:text-foreground transition-colors cursor-pointer"
+                    title={p.isCameraOff ? 'Turn camera on' : 'Turn camera off'}
+                  >
+                    {p.isCameraOff ? <FiVideoOff className="w-3.5 h-3.5" /> : <FiVideo className="w-3.5 h-3.5" />}
                   </button>
                   <button
                     onClick={() => onRemove(p.id)}

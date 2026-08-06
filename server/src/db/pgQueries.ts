@@ -114,6 +114,14 @@ export async function updateParticipantMuted(id: string, isMuted: boolean) {
   return rows[0];
 }
 
+export async function updateParticipantCamera(id: string, isCameraOff: boolean) {
+  const { rows } = await pool.query(
+    `UPDATE participants SET is_camera_off = $2 WHERE id = $1 RETURNING *`,
+    [id, isCameraOff]
+  );
+  return rows[0];
+}
+
 // ─── Chat ─────────────────────────────────────────────
 
 export async function saveChatMessage(opts: {

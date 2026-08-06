@@ -15,7 +15,14 @@ export const GameSubmitPayload = z.object({
   roundId: z.string().uuid(),
   answer: z.unknown(),
 });
-export const ParticipantMutePayload = z.object({ targetId: z.string().uuid() });
+export const ParticipantMutePayload = z.object({
+  targetId: z.string().uuid(),
+  muted: z.boolean().optional(),
+});
+export const ParticipantCameraPayload = z.object({
+  targetId: z.string().uuid(),
+  cameraOff: z.boolean().optional(),
+});
 export const ParticipantRemovePayload = z.object({ targetId: z.string().uuid() });
 export const RoomLockPayload = z.object({});
 export const RoomEndPayload = z.object({});
@@ -28,6 +35,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('caption:event'), payload: CaptionEventPayload }),
   z.object({ type: z.literal('game:submit'), payload: GameSubmitPayload }),
   z.object({ type: z.literal('participant:mute'), payload: ParticipantMutePayload }),
+  z.object({ type: z.literal('participant:camera'), payload: ParticipantCameraPayload }),
   z.object({ type: z.literal('participant:remove'), payload: ParticipantRemovePayload }),
   z.object({ type: z.literal('room:lock'), payload: RoomLockPayload }),
   z.object({ type: z.literal('room:end'), payload: RoomEndPayload }),
@@ -49,6 +57,7 @@ export type ServerMessage =
   | { type: 'participant:joined'; payload: { id: string; name: string } }
   | { type: 'participant:left'; payload: { id: string } }
   | { type: 'participant:muted'; payload: { targetId: string; isMuted: boolean } }
+  | { type: 'participant:camera'; payload: { targetId: string; isCameraOff: boolean } }
   | { type: 'participant:removed'; payload: { targetId: string } }
   | { type: 'room:locked'; payload: Record<string, never> }
   | { type: 'room:ended'; payload: Record<string, never> }
@@ -57,7 +66,7 @@ export type ServerMessage =
   | { type: 'room:state'; payload: RoomStateSnapshot };
 
 export interface RoomStateSnapshot {
-  participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean }>;
+  participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
   transcriptionEnabled: boolean;
   roomState: 'active' | 'locked' | 'ended';
   activeRound: {

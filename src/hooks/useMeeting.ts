@@ -10,7 +10,7 @@ import { useWebSocket } from './useWebSocket';
 
 export interface MeetingState {
   room: Room | null;
-  participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean }>;
+  participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
   isHost: boolean;
   participantId: string | null;
   participantName: string | null;
@@ -43,7 +43,8 @@ export interface MeetingActions {
   toggleHand: (raised: boolean) => void;
   toggleTranscription: (enabled: boolean) => void;
   endMeeting: () => void;
-  muteParticipant: (targetId: string) => void;
+  muteParticipant: (targetId: string, muted?: boolean) => void;
+  setParticipantCamera: (targetId: string, cameraOff: boolean) => void;
   removeParticipant: (targetId: string) => void;
   lockRoom: () => void;
   leave: () => void;
@@ -100,7 +101,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('participant:joined', (payload: { id: string; name: string }) => {
         setParticipants((prev) => {
           if (prev.some((p) => p.id === payload.id)) return prev;
-          return [...prev, { id: payload.id, name: payload.name, isHost: false, isMuted: false }];
+          return [...prev, { id: payload.id, name: payload.name, isHost: false, isMuted: false, isCameraOff: false }];
         });
       })
     );
@@ -115,6 +116,14 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('participant:muted', (payload: { targetId: string; isMuted: boolean }) => {
         setParticipants((prev) =>
           prev.map((p) => (p.id === payload.targetId ? { ...p, isMuted: payload.isMuted } : p))
+        );
+      })
+    );
+
+    unsubs.push(
+      ws.on('participant:camera', (payload: { targetId: string; isCameraOff: boolean }) => {
+        setParticipants((prev) =>
+          prev.map((p) => (p.id === payload.targetId ? { ...p, isCameraOff: payload.isCameraOff } : p))
         );
       })
     );
@@ -288,7 +297,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     setParticipantName(result.participant.name || 'Host');
     setIsHost(true);
     setLivekitUrl(result.livekitUrl);
-    setParticipants([{ id: result.participant.id, name: result.participant.name || 'Host', isHost: true, isMuted: false }]);
+    setParticipants([{ id: result.participant.id, name: result.participant.name || 'Host', isHost: true, isMuted: false, isCameraOff: false }]);
 
     // Connect WebSocket
     ws.connect(result.room.id, result.participant.id, result.token);
@@ -354,7 +363,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     setParticipantName(result.participant.name);
     setIsHost(false);
     setLivekitUrl(result.livekitUrl);
-    setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: false, isMuted: false }]);
+    setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: false, isMuted: false, isCameraOff: false }]);
 
     // Connect WebSocket
     ws.connect(result.room.id, result.participant.id, result.token);
@@ -435,7 +444,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       setParticipantName(result.participant.name);
       setIsHost(snap.isHost); // restore host status (WS room:state also syncs it)
       setLivekitUrl(result.livekitUrl);
-      setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: snap.isHost, isMuted: false }]);
+      setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: snap.isHost, isMuted: false, isCameraOff: false }]);
 
       ws.connect(result.room.id, result.participant.id, result.token);
 
@@ -513,12 +522,40 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     }
   }, [room]);
 
+  /**
+   * End the meeting for EVERYONE (host power).
+   * Sends `room:end` over WS (server broadcasts + hard-deletes the LiveKit
+   * room) AND fires the HTTP endpoint as an idempotent fallback so the room
+   * still ends if the host's WS is down (e.g. right after a network blip).
+   */
   const endMeeting = useCallback(() => {
+    const token = api.getRoomToken();
+    const roomId = roomIdRef.current;
     ws.send('room:end', {});
+    if (token && roomId) {
+      api
+        .endRoom(roomId, token)
+        .then(() => {
+          // If our WS was dead and the broadcast never arrived, finish the
+          // local cleanup now (the App route navigates to recap on 'ended').
+          setRoom((prev) => (prev ? { ...prev, state: 'ended' } : prev));
+          intentionallyLeftRef.current = true;
+          ws.disconnect();
+          liveKitRoom?.disconnect();
+          setLiveKitRoom(null);
+          setLiveKitConnected(false);
+          api.clearRoomToken();
+        })
+        .catch((e) => console.error('[meeting] endRoom HTTP fallback failed:', e));
+    }
+  }, [ws, liveKitRoom]);
+
+  const muteParticipant = useCallback((targetId: string, muted = true) => {
+    ws.send('participant:mute', { targetId, muted });
   }, [ws]);
 
-  const muteParticipant = useCallback((targetId: string) => {
-    ws.send('participant:mute', { targetId });
+  const setParticipantCamera = useCallback((targetId: string, cameraOff: boolean) => {
+    ws.send('participant:camera', { targetId, cameraOff });
   }, [ws]);
 
   const removeParticipant = useCallback((targetId: string) => {
@@ -618,6 +655,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       toggleTranscription,
       endMeeting,
       muteParticipant,
+      setParticipantCamera,
       removeParticipant,
       lockRoom,
       leave,
@@ -634,6 +672,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       toggleTranscription,
       endMeeting,
       muteParticipant,
+      setParticipantCamera,
       removeParticipant,
       lockRoom,
       leave,
