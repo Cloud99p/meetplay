@@ -14,8 +14,10 @@ import { hashPassword, verifyPassword } from '../utils/password.js';
 import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
 import { mintJoinToken } from '../livekit/token.js';
 import { probeLiveKit } from './livekit.js';
+import { loadConfig } from '../config.js';
 
 const MAX_PARTICIPANTS = 50;
+const cfg = loadConfig();
 
 export async function roomsRoutes(app: FastifyInstance) {
   // Create a room
@@ -58,7 +60,7 @@ export async function roomsRoutes(app: FastifyInstance) {
         isHost: true,
       },
       token,
-      livekitUrl: process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud',
+      livekitUrl: cfg.livekitUrl,
       livekitAvailable: livekitHealth.available,
     });
   });
@@ -153,7 +155,7 @@ export async function roomsRoutes(app: FastifyInstance) {
         isHost: false,
       },
       token,
-      livekitUrl: process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud',
+      livekitUrl: cfg.livekitUrl,
       livekitAvailable: livekitHealth.available,
     });
   });

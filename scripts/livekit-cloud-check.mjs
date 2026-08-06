@@ -1,5 +1,6 @@
 // Verify LiveKit Cloud accepts our minted token: connect a real LiveKit client
-// to wss://meetplay-3pba3wsu.livekit.cloud. Requires the backend running on PORT.
+// to your LIVEKIT_URL (e.g. wss://meetplay-3pba3wsu.livekit.cloud — set it in
+// .env). Requires the backend running on PORT.
 import { Room } from 'livekit-client';
 
 const PORT = Number(process.argv[2] || 5173);

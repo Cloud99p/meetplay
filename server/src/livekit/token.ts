@@ -1,16 +1,18 @@
 import { AccessToken } from 'livekit-server-sdk';
+import { loadConfig, requireLiveKit } from '../config.js';
 
-// LiveKit Cloud instance (committed fallback so previews without .env work).
-// ⚠️ ROTATE the API secret in the LiveKit dashboard after the buildathon.
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY ?? 'APIHBwo5VwnwMag';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET ?? 'Re9hGufUrm4TBOxwqGXcIegfe2KmgaYdEzQUWyc4LNLB';
-
+/**
+ * Mint a LiveKit join token using credentials from the environment
+ * (LIVEKIT_API_KEY / LIVEKIT_API_SECRET). No committed fallbacks.
+ */
 export async function mintJoinToken(opts: {
   roomName: string;
   identity: string;
   participantName: string;
 }): Promise<string> {
-  const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+  const { apiKey, apiSecret } = requireLiveKit(loadConfig());
+
+  const at = new AccessToken(apiKey, apiSecret, {
     identity: opts.identity,
     name: opts.participantName,
   });

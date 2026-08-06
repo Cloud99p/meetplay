@@ -22,16 +22,23 @@ const serverEnv = {
   ...process.env,
   USE_MEMORY_DB: '1',
   JWT_SECRET: process.env.JWT_SECRET ?? 'meetplay-dev-secret',
-  // LiveKit Cloud instance (committed fallback so previews without .env work).
-  // ⚠️ ROTATE the API secret in the LiveKit dashboard after the buildathon —
-  // it is intentionally visible here so the nativelyai preview can reach the cloud.
-  LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? 'APIHBwo5VwnwMag',
-  LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? 'Re9hGufUrm4TBOxwqGXcIegfe2KmgaYdEzQUWyc4LNLB',
-  LIVEKIT_URL: process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud',
+  // LiveKit credentials come ONLY from .env / env — no committed fallbacks.
+  // Copy .env.example to .env and fill in LIVEKIT_URL/API_KEY/API_SECRET
+  // (get them from https://cloud.livekit.io) for video to work in dev.
+  LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? '',
+  LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? '',
+  LIVEKIT_URL: process.env.LIVEKIT_URL ?? '',
   // Backend port is decoupled from PORT (Railway injects PORT for the public
   // entry; we keep the backend on 3001 and expose Vite on 5173).
   PORT: process.env.BACKEND_PORT ?? '3001',
 };
+
+if (!serverEnv.LIVEKIT_URL || !serverEnv.LIVEKIT_API_KEY || !serverEnv.LIVEKIT_API_SECRET) {
+  console.warn(
+    '[dev] LiveKit env vars missing (LIVEKIT_URL/API_KEY/API_SECRET) — video/audio will be ' +
+      'unavailable. Copy .env.example to .env and fill them in, or run `docker compose up livekit`.',
+  );
+}
 
 const LIVEKIT_HTTP_PORT = 7880;
 

@@ -1,45 +1,61 @@
-# DEPLOY.md — Get MeetPlay working for the LabLab buildathon
+# DEPLOY.md — Deploy MeetPlay to production
 
-The app is a **single-container** deployment: Vite dev server (:5173) proxies
-`/api`, `/ws`, and `/rtc` to the in-container backend (:3001) and LiveKit (:7880).
-The browser only talks to **one origin**, which avoids CORS and WebSocket edge
-problems. The container auto-installs and starts LiveKit on first boot.
+The app is a **single-container** deployment: the Fastify backend serves the
+built frontend (SPA fallback) + REST API + WebSocket, all on **one port**.
+The browser only talks to one origin — no CORS, no WebSocket edge problems.
 
-## Deploy to Railway (recommended — free, WebSocket-friendly, 1 click)
+**All configuration is via environment variables.** There are no committed
+secrets in the repo. Set them in your platform's dashboard (see table below).
 
-This repo already includes `railway.json` (Dockerfile builder, `/health` probe).
+## Deploy to Railway (recommended — free, WebSocket-friendly)
 
-1. Push this repo to GitHub (it's already at github.com/Cloud99p/meetplay).
+This repo includes `railway.json` (Dockerfile builder, `/health` probe).
+
+1. Push this repo to GitHub (already at github.com/Cloud99p/meetplay).
 2. Railway → **New Project** → **Deploy from GitHub repo** → pick `Cloud99p/meetplay`.
 3. Railway auto-detects `railway.json` + `Dockerfile` (single container).
-4. **No env vars required** — LiveKit Cloud URL/key/secret are committed as
-   fallbacks; in-memory DB is the default. Optional:
-   - `DATABASE_URL` + `USE_MEMORY_DB=0` for Postgres persistence
-5. Railway exposes port **5173** (from `EXPOSE`), health-checks `/health`, and
-   gives you a public URL. Done.
+4. **Add the required env vars** (below) in Railway → Variables. Railway
+   injects build-time vars (`VITE_*`) into the Docker build automatically, and
+   runtime vars (`LIVEKIT_*`, `JWT_SECRET`, `DATABASE_URL`) into the container.
+5. Railway health-checks `/health` and gives you a public URL. Done.
 
-> ⚠️ Rotate the LiveKit Cloud API secret in the LiveKit dashboard after the
-> buildathon — the fallback key/secret is intentionally visible in the repo
-> so previews/deployments work without `.env`.
+## Required env vars (no app runs without LiveKit)
 
-## Deploy to Render / Fly.io / any VPS
+| Var | Example | Purpose |
+|-----|---------|---------|
+| `LIVEKIT_URL` | `wss://meetplay-xxx.livekit.cloud` | LiveKit Cloud (or local) server URL |
+| `LIVEKIT_API_KEY` | `API...` | LiveKit Cloud API key (cloud.livekit.io → Settings) |
+| `LIVEKIT_API_SECRET` | (64-char secret) | LiveKit Cloud API secret — **rotate it now if you ever committed it** |
 
-- Render: Blueprint or Docker service → same Dockerfile → port 5173.
-- Fly.io: `fly launch` with this Dockerfile → `fly deploy`, expose 5173.
-- VPS: `docker build -t meetplay . && docker run -p 5173:5173 meetplay`.
-
-## Env vars reference
+## Optional env vars
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `PORT` | `3001` (via `BACKEND_PORT`) | Backend port (internal) — decoupled from Railway's injected `PORT` |
-| `USE_MEMORY_DB` | `1` | In-memory DB; set `0` + `DATABASE_URL` for Postgres |
-| `DATABASE_URL` | — | Postgres connection string |
-| `JWT_SECRET` | dev secret | Room token signing — **set a real one in prod** |
-| `LIVEKIT_URL` | `wss://meetplay-3pba3wsu.livekit.cloud` | LiveKit server URL (cloud or local) |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | committed fallbacks | Must match the LiveKit server keys |
-| `VITE_SERVER_URL` | `''` (same-origin) | Override API/WS base URL (not needed single-container) |
+| `JWT_SECRET` | `meetplay-dev-secret` | Room token signing — **set a long random string in prod** (`openssl rand -hex 32`) |
+| `DATABASE_URL` | (none → in-memory) | Postgres connection string for persistence; set `USE_MEMORY_DB=0` |
+| `USE_MEMORY_DB` | `1` | In-memory DB (data resets on restart) |
+| `RATE_LIMIT_MAX` | `120` | API rate limit per IP per minute |
+| `PORT` | `3001` | Server port (Railway injects it automatically) |
+| `VITE_STT_MODE` | `mock` | `mock` \| `webspeech` \| `deepgram` (baked at build time) |
+| `VITE_DEEPGRAM_API_KEY` | — | Required when `VITE_STT_MODE=deepgram` (baked at build time) |
 | `VITE_LIVEKIT_URL` | — | Client-side LiveKit URL override (baked at build time) |
+| `VITE_SERVER_URL` | `''` (same-origin) | Override API/WS base URL |
+
+> ⚠️ **VITE_* vars are baked into the frontend at build time** — changing them
+> requires a redeploy. **Server vars (LIVEKIT_*, JWT_SECRET, DATABASE_URL) are
+> read at runtime** — changing them just needs a restart.
+
+## Deploy to Render / Fly.io / any VPS
+
+- Render: Blueprint or Docker service → same Dockerfile → set env vars above.
+- Fly.io: `fly launch` with this Dockerfile → `fly secrets set LIVEKIT_URL=... ...` → `fly deploy`.
+- VPS: `docker build -t meetplay . && docker run -p 3001:3001 --env-file .env meetplay`.
+
+## Local dev
+
+1. `cp .env.example .env` and fill in `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (from cloud.livekit.io).
+2. `npm run dev` — backend :3001 + Vite :5173, mock STT by default.
+3. For real STT: set `VITE_STT_MODE=deepgram` and `VITE_DEEPGRAM_API_KEY` (console.deepgram.com).
 
 ## Demo checklist for judges
 

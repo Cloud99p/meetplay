@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { connect } from 'net';
+import { loadConfig } from '../config.js';
 
 /**
  * Resolve the LiveKit host:port to probe from LIVEKIT_URL if set
  * (e.g. wss://meetplay-xxx.livekit.cloud -> host: meetplay-xxx.livekit.cloud, port 443),
- * falling back to a local dev server.
+ * falling back to LIVEKIT_HOST (default local dev server).
  */
 function resolveProbeTarget(): { host: string; port: number } {
-  const url = process.env.LIVEKIT_URL ?? 'wss://meetplay-3pba3wsu.livekit.cloud';
+  const cfg = loadConfig();
+  const url = cfg.livekitUrl;
   if (url) {
     try {
       const parsed = new URL(url);
@@ -19,7 +21,7 @@ function resolveProbeTarget(): { host: string; port: number } {
       // fall through to default
     }
   }
-  const hostPort = process.env.LIVEKIT_HOST ?? 'localhost:7880';
+  const hostPort = cfg.livekitHost;
   const [host, portStr] = hostPort.split(':');
   return { host, port: Number(portStr ?? 7880) };
 }

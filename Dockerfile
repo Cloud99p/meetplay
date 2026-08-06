@@ -3,7 +3,11 @@
 # Builds the frontend (vite build -> dist/) and runs the Fastify backend which
 # serves: static frontend (SPA fallback) + REST API + WebSocket, all on ONE port.
 # Browser talks to one origin — no CORS, no proxy, no WebSocket edge issues.
-# LiveKit Cloud URL/key/secret are committed fallbacks (no .env needed).
+#
+# ALL configuration comes from environment variables (see .env.example).
+# Server-side vars (LIVEKIT_*, JWT_SECRET, DATABASE_URL) are read at runtime.
+# Client-side vars (VITE_*) are baked into the bundle at BUILD time — pass them
+# as build args (Railway/Render inject env vars into docker builds automatically).
 #
 # Deploy: point your PaaS (Railway/Render/Fly) at this Dockerfile.
 # The server listens on $PORT (Railway injects it) at 0.0.0.0.
@@ -19,6 +23,20 @@ RUN npm ci
 
 # Copy source
 COPY . .
+
+# --- Client build-time env (baked into the frontend bundle) ---
+# VITE_STT_MODE=mock|webspeech|deepgram
+# VITE_DEEPGRAM_API_KEY=your key (only when VITE_STT_MODE=deepgram)
+# VITE_LIVEKIT_URL=wss://... (optional client-side LiveKit override)
+# VITE_SERVER_URL=https://... (optional server override for the frontend)
+ARG VITE_STT_MODE=mock
+ARG VITE_DEEPGRAM_API_KEY=
+ARG VITE_LIVEKIT_URL=
+ARG VITE_SERVER_URL=
+ENV VITE_STT_MODE=$VITE_STT_MODE \
+    VITE_DEEPGRAM_API_KEY=$VITE_DEEPGRAM_API_KEY \
+    VITE_LIVEKIT_URL=$VITE_LIVEKIT_URL \
+    VITE_SERVER_URL=$VITE_SERVER_URL
 
 # Build the frontend -> dist/ and compile the server -> server/dist/
 RUN npm run build && cd server && npx tsc -p tsconfig.json
