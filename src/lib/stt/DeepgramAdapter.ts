@@ -1,28 +1,22 @@
 import type { STTAdapter, Utterance } from './STTAdapter';
 
 /**
- * Production STT adapter using Deepgram's Live API over WebSocket.
+ * Production STT adapter — streams browser mic audio to the SERVER-SIDE
+ * Deepgram proxy (/api/stt). The Deepgram API key NEVER ships to the client;
+ * it lives in DEEPGRAM_API_KEY on the server (Railway env var).
  *
- * - Streaming speech-to-text with speaker diarization (REQUIRED for the
- *   "Who Said That?" game).
- * - Uses the browser's microphone (getUserMedia) -> PCM16 @ 16kHz mono ->
- *   Deepgram Live endpoint.
- * - Browser-safe auth: Deepgram supports passing the API key as the `token`
- *   query param because the browser WebSocket API cannot set headers.
- * - Graceful degradation: if the socket fails or closes unexpectedly, we
- *   reconnect with exponential backoff. If the adapter is stopped, everything
- *   is torn down cleanly.
+ * Flow:
+ *   browser mic -> PCM16 16kHz mono -> WS /api/stt (same origin)
+ *   -> server forwards with Authorization: Token <key> -> Deepgram Live API
+ *   -> diarized Results JSON streamed back to this adapter.
  *
- * Env:
- *   VITE_DEEPGRAM_API_KEY  (required for this adapter; key is embedded in the
- *                           WS URL, so it ships to the client bundle — fine for
- *                           an MVP/app where the client calls Deepgram directly;
- *                           for stricter security, proxy through your server)
+ * Graceful degradation: if the socket fails or closes unexpectedly, we
+ * reconnect with exponential backoff. If the adapter is stopped, everything
+ * is torn down cleanly.
  */
 export class DeepgramAdapter implements STTAdapter {
   onUtterance?: (utterance: Utterance) => void;
 
-  private apiKey: string;
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
@@ -33,15 +27,8 @@ export class DeepgramAdapter implements STTAdapter {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(apiKey?: string) {
-    this.apiKey = apiKey ?? import.meta.env.VITE_DEEPGRAM_API_KEY ?? '';
-    if (!this.apiKey) {
-      console.warn('[DeepgramAdapter] No VITE_DEEPGRAM_API_KEY set. Adapter will not start.');
-    }
-  }
-
   start(): void {
-    if (this.running || !this.apiKey) return;
+    if (this.running) return;
     this.running = true;
     this.stopped = false;
     this.connect();
@@ -69,25 +56,21 @@ export class DeepgramAdapter implements STTAdapter {
   }
 
   // -------------------------------------------------------------------------
-  // Deepgram socket
+  // Proxy socket (same origin — key stays on the server)
   // -------------------------------------------------------------------------
+
+  private proxyUrl(): string {
+    const base = (import.meta.env.VITE_SERVER_URL as string | undefined) ?? '';
+    if (base) return `${base.replace(/\/$/, '')}/api/stt`.replace(/^http/, 'ws');
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${window.location.host}/api/stt`;
+  }
 
   private connect(): void {
     if (this.stopped) return;
 
-    const params = new URLSearchParams({
-      model: 'nova-2',
-      diarize: 'true',
-      interim_results: 'true',
-      punctuate: 'true',
-      encoding: 'linear16',
-      sample_rate: '16000',
-      channels: '1',
-      token: this.apiKey,
-    });
-
     try {
-      this.ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${params.toString()}`);
+      this.ws = new WebSocket(this.proxyUrl());
     } catch (err) {
       console.error('[DeepgramAdapter] Failed to open WebSocket:', err);
       this.scheduleReconnect();
@@ -96,6 +79,7 @@ export class DeepgramAdapter implements STTAdapter {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
+      // Tell the server which Deepgram config to use. The server holds the key.
       this.ws?.send(
         JSON.stringify({
           type: 'Configure',
@@ -139,6 +123,11 @@ export class DeepgramAdapter implements STTAdapter {
     try {
       msg = JSON.parse(data);
     } catch {
+      return;
+    }
+
+    if (msg.type === 'Error') {
+      console.warn('[DeepgramAdapter] server error:', msg.message);
       return;
     }
 
@@ -202,7 +191,6 @@ export class DeepgramAdapter implements STTAdapter {
     this.processor.onaudioprocess = (e) => {
       if (this.ws?.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0); // Float32 [-1, 1]
-      // Downmix (already mono) + convert to 16-bit PCM little-endian
       const pcm = new Int16Array(input.length);
       for (let i = 0; i < input.length; i++) {
         const s = Math.max(-1, Math.min(1, input[i]));

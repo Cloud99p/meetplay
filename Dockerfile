@@ -26,15 +26,14 @@ COPY . .
 
 # --- Client build-time env (baked into the frontend bundle) ---
 # VITE_STT_MODE=mock|webspeech|deepgram
-# VITE_DEEPGRAM_API_KEY=your key (only when VITE_STT_MODE=deepgram)
 # VITE_LIVEKIT_URL=wss://... (optional client-side LiveKit override)
 # VITE_SERVER_URL=https://... (optional server override for the frontend)
+# NOTE: DEEPGRAM_API_KEY is SERVER-side (read at runtime by the /api/stt
+# proxy) — set it as a runtime env var, NOT a build arg.
 ARG VITE_STT_MODE=mock
-ARG VITE_DEEPGRAM_API_KEY=
 ARG VITE_LIVEKIT_URL=
 ARG VITE_SERVER_URL=
 ENV VITE_STT_MODE=$VITE_STT_MODE \
-    VITE_DEEPGRAM_API_KEY=$VITE_DEEPGRAM_API_KEY \
     VITE_LIVEKIT_URL=$VITE_LIVEKIT_URL \
     VITE_SERVER_URL=$VITE_SERVER_URL
 

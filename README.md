@@ -45,7 +45,7 @@ docker build -t meetplay . && docker run -p 5173:5173 meetplay
 |---|---|---|---|---|
 | **Local dev (default)** | in-memory DB | local LiveKit (Linux) or LiveKit Cloud | Mock STT | `npm run dev` |
 | **Docker compose** | Postgres | LiveKit container | Mock STT | `docker compose up` |
-| **Production (Railway/etc.)** | in-memory or Postgres | LiveKit Cloud (committed fallback keys) | Mock/WebSpeech/Deepgram | deploy `Dockerfile` |
+| **Production (Railway/etc.)** | in-memory or Postgres | LiveKit Cloud (env vars) | Mock/WebSpeech/Deepgram | deploy `Dockerfile` |
 
 ### Speech-to-text modes (`VITE_STT_MODE`)
 
@@ -58,11 +58,11 @@ env var (see `.env.example`):
 |---|---|---|---|---|
 | `mock` (default) | `MockAdapter` | ✅ synthetic | ❌ | Buildathon/demo, zero-config local dev |
 | `webspeech` | `WebSpeechAdapter` | ❌ (single `local` speaker) | ❌ | Free browser-native STT — captions only; "Who Said That?" degrades (no speakers) |
-| `deepgram` | `DeepgramAdapter` | ✅ real (per-word speaker) | `VITE_DEEPGRAM_API_KEY` | **Production** — streaming + diarized, powers all 3 games correctly |
+| `deepgram` | `DeepgramAdapter` | ✅ real (per-word speaker) | `DEEPGRAM_API_KEY` (server-side) | **Production** — streaming + diarized via server proxy, powers all 3 games correctly |
 
 ```bash
-# Production: real diarized STT
-VITE_STT_MODE=deepgram VITE_DEEPGRAM_API_KEY=dg_... npm run build
+# Production: real diarized STT (key stays on the server — no client key needed)
+VITE_STT_MODE=deepgram npm run build   # + set DEEPGRAM_API_KEY on the server
 
 # Or free browser STT (no diarization)
 VITE_STT_MODE=webspeech npm run dev
@@ -71,9 +71,12 @@ VITE_STT_MODE=webspeech npm run dev
 npm run dev
 ```
 
-If `deepgram` is selected without a key, the app falls back to `mock` so demos
-never break. **Mock STT is the default dev mode by design** — the whole app runs
-free and locally without keys.
+Deepgram mode uses a **server-side proxy** (`/api/stt`): the browser streams
+mic audio to your own server, which forwards it to Deepgram with the key in an
+Authorization header. The key never ships to the browser bundle.
+
+**Mock STT is the default dev mode by design** — the whole app runs free and
+locally without keys.
 
 ---
 

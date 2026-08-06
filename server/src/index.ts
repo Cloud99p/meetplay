@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import { roomsRoutes } from './routes/rooms.js';
 import { recapRoutes } from './routes/recap.js';
 import { livekitRoutes } from './routes/livekit.js';
+import { sttRoutes } from './routes/stt.js';
 import { wsHandler } from './ws/handler.js';
 
 const app = Fastify({ logger: true });
@@ -40,6 +41,7 @@ app.get('/ws', { websocket: true }, wsHandler);
 await app.register(roomsRoutes);
 await app.register(recapRoutes);
 await app.register(livekitRoutes);
+await app.register(sttRoutes);
 
 // ---- Static frontend (production) ----
 // Serve the built Vite app from dist/ with SPA fallback. Skip if dist is

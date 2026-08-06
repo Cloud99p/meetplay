@@ -36,8 +36,8 @@ This repo includes `railway.json` (Dockerfile builder, `/health` probe).
 | `USE_MEMORY_DB` | `1` | In-memory DB (data resets on restart) |
 | `RATE_LIMIT_MAX` | `120` | API rate limit per IP per minute |
 | `PORT` | `3001` | Server port (Railway injects it automatically) |
+| `DEEPGRAM_API_KEY` | — | Deepgram key (server-side /api/stt proxy) — required when `VITE_STT_MODE=deepgram` |
 | `VITE_STT_MODE` | `mock` | `mock` \| `webspeech` \| `deepgram` (baked at build time) |
-| `VITE_DEEPGRAM_API_KEY` | — | Required when `VITE_STT_MODE=deepgram` (baked at build time) |
 | `VITE_LIVEKIT_URL` | — | Client-side LiveKit URL override (baked at build time) |
 | `VITE_SERVER_URL` | `''` (same-origin) | Override API/WS base URL |
 

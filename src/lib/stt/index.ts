@@ -13,25 +13,21 @@ import type { STTAdapter } from './STTAdapter';
  *   VITE_STT_MODE=webspeech   -> WebSpeechAdapter   (browser-native STT, free,
  *                                                    NO speaker diarization)
  *   VITE_STT_MODE=deepgram    -> DeepgramAdapter    (production: streaming,
- *                                                    diarized; requires
- *                                                    VITE_DEEPGRAM_API_KEY)
+ *                                                    diarized, via the server
+ *                                                    proxy — key stays server-side)
  *
- * If `deepgram` is requested but no API key is configured, we fall back to the
- * mock adapter so the app never breaks in a demo. The game engine treats all
- * adapters the same because they share the STTAdapter contract.
+ * Deepgram mode needs NO client-side key: the browser streams audio to the
+ * same-origin /api/stt proxy, and the server holds DEEPGRAM_API_KEY. If the
+ * server lacks the key it replies with an Error message and the adapter logs
+ * it gracefully. All adapters share the STTAdapter contract, so the game
+ * engine treats them identically.
  */
 export function createSttAdapter(localParticipantId?: string): STTAdapter {
   const mode = (import.meta.env.VITE_STT_MODE ?? 'mock').toLowerCase();
 
   switch (mode) {
-    case 'deepgram': {
-      const key = import.meta.env.VITE_DEEPGRAM_API_KEY ?? '';
-      if (!key) {
-        console.warn('[stt] VITE_STT_MODE=deepgram but VITE_DEEPGRAM_API_KEY is missing — falling back to mock.');
-        return new MockAdapter(localParticipantId);
-      }
-      return new DeepgramAdapter(key);
-    }
+    case 'deepgram':
+      return new DeepgramAdapter();
     case 'webspeech':
       return new WebSpeechAdapter();
     case 'mock':

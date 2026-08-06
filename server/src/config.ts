@@ -20,6 +20,7 @@ export interface ServerConfig {
   livekitApiSecret: string;
   livekitHost: string;
   jwtSecret: string;
+  deepgramApiKey: string;
   databaseUrl?: string;
   useMemoryDb: boolean;
   rateLimitMax: number;
@@ -43,6 +44,7 @@ export function loadConfig(): ServerConfig {
     livekitApiSecret,
     livekitHost: env.LIVEKIT_HOST?.trim() ?? 'localhost:7880',
     jwtSecret: env.JWT_SECRET?.trim() ?? 'meetplay-dev-secret', // dev-only default
+    deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() ?? '',
     databaseUrl: env.DATABASE_URL?.trim() || undefined,
     useMemoryDb: !env.DATABASE_URL || env.USE_MEMORY_DB === '1',
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 120),
