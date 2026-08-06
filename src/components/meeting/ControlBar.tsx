@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiMonitor, FiMessageSquare, FiUsers,
-  FiLogOut, FiSmile,
+  FiLogOut, FiSmile, FiCircle,
 } from 'react-icons/fi';
 import { LuHand } from 'react-icons/lu';
 import { useLocalParticipant } from '@livekit/components-react';
@@ -14,6 +14,8 @@ const QUICK_EMOJIS = ['👍', '😂', '❤️', '🎉', '🤔', '👏', '🙌', 
 interface Props {
   isHost: boolean;
   transcriptionEnabled: boolean;
+  recording: boolean;
+  onToggleRecording?: () => void;
   onToggleMic?: () => void;
   onToggleCam?: () => void;
   onToggleScreenShare?: () => void;
@@ -30,6 +32,8 @@ interface Props {
 export default function ControlBar({
   isHost,
   transcriptionEnabled,
+  recording,
+  onToggleRecording,
   onToggleMic,
   onToggleCam,
   onToggleScreenShare,
@@ -108,6 +112,19 @@ export default function ControlBar({
           </div>
         )}
       </div>
+
+      {/* Host: record the call */}
+      {isHost && (
+        <button
+          onClick={onToggleRecording}
+          className={`${btnClass} ${recording ? 'bg-destructive/25 text-destructive' : ''}`}
+          title={recording ? 'Stop recording' : 'Record call'}
+        >
+          <FiCircle
+            className={`w-4 h-4 ${recording ? 'animate-pulse fill-destructive' : 'fill-current'}`}
+          />
+        </button>
+      )}
 
       <div className="w-px h-6 bg-border mx-1" />
 

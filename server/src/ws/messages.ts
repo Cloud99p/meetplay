@@ -26,6 +26,8 @@ export const ParticipantCameraPayload = z.object({
 export const ParticipantRemovePayload = z.object({ targetId: z.string().uuid() });
 export const RoomLockPayload = z.object({});
 export const RoomEndPayload = z.object({});
+export const RecordingStartPayload = z.object({});
+export const RecordingStopPayload = z.object({});
 
 export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('chat:send'), payload: ChatSendPayload }),
@@ -39,6 +41,8 @@ export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('participant:remove'), payload: ParticipantRemovePayload }),
   z.object({ type: z.literal('room:lock'), payload: RoomLockPayload }),
   z.object({ type: z.literal('room:end'), payload: RoomEndPayload }),
+  z.object({ type: z.literal('recording:start'), payload: RecordingStartPayload }),
+  z.object({ type: z.literal('recording:stop'), payload: RecordingStopPayload }),
 ]);
 
 export type TClientMessage = z.infer<typeof ClientMessage>;
@@ -61,6 +65,9 @@ export type ServerMessage =
   | { type: 'participant:removed'; payload: { targetId: string } }
   | { type: 'room:locked'; payload: Record<string, never> }
   | { type: 'room:ended'; payload: Record<string, never> }
+  | { type: 'recording:started'; payload: { recording: true; startedAt: number } }
+  | { type: 'recording:stopped'; payload: { recording: false; downloadUrl: string | null; filename: string | null } }
+  | { type: 'recording:error'; payload: { message: string } }
   | { type: 'host:promoted'; payload: { participantId: string } }
   | { type: 'transcript:toggled'; payload: { enabled: boolean } }
   | { type: 'room:state'; payload: RoomStateSnapshot };
@@ -69,6 +76,7 @@ export interface RoomStateSnapshot {
   participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
   transcriptionEnabled: boolean;
   roomState: 'active' | 'locked' | 'ended';
+  recording: boolean;
   activeRound: {
     roundId: string;
     gameType: string;

@@ -37,6 +37,7 @@ export interface RoomStateSnapshot {
   }>;
   transcriptionEnabled: boolean;
   roomState: 'active' | 'locked' | 'ended';
+  recording: boolean;
   activeRound: {
     roundId: string;
     gameType: string;

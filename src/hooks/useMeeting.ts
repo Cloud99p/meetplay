@@ -32,6 +32,9 @@ export interface MeetingState {
     timestamp: number;
   }>;
   gameQuiet: boolean;
+  recording: boolean;
+  recordingResult: { downloadUrl: string | null; filename: string | null } | null;
+  recordingError: string | null;
 }
 
 export interface MeetingActions {
@@ -43,6 +46,8 @@ export interface MeetingActions {
   toggleHand: (raised: boolean) => void;
   toggleTranscription: (enabled: boolean) => void;
   endMeeting: () => void;
+  startRecording: () => void;
+  stopRecording: () => void;
   muteParticipant: (targetId: string, muted?: boolean) => void;
   setParticipantCamera: (targetId: string, cameraOff: boolean) => void;
   removeParticipant: (targetId: string) => void;
@@ -72,6 +77,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   // Quiet mode: true while ANY participant is screen-sharing (host presenting).
   // Games keep syncing state but suppress attention-drawing notifications.
   const [gameQuiet, setGameQuiet] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordingResult, setRecordingResult] = useState<MeetingState['recordingResult']>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
 
   const roomTokenRef = useRef<string | null>(null);
   const roomIdRef = useRef<string | null>(null);
@@ -91,6 +99,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         setTranscriptionEnabled(payload.transcriptionEnabled);
         setActiveRound(payload.activeRound);
         setLeaderboard(payload.leaderboard);
+        setRecording(Boolean(payload.recording));
         if (payload.roomState) {
           setRoom((prev) => prev ? { ...prev, state: payload.roomState } : prev);
         }
@@ -195,6 +204,29 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         liveKitRoom?.disconnect();
         setLiveKitRoom(null);
         setLiveKitConnected(false);
+      })
+    );
+
+    unsubs.push(
+      ws.on('recording:started', () => {
+        setRecording(true);
+        setRecordingResult(null);
+        setRecordingError(null);
+      })
+    );
+
+    unsubs.push(
+      ws.on('recording:stopped', (payload: { recording: boolean; downloadUrl: string | null; filename: string | null }) => {
+        setRecording(false);
+        setRecordingResult({ downloadUrl: payload.downloadUrl, filename: payload.filename });
+        setRecordingError(null);
+      })
+    );
+
+    unsubs.push(
+      ws.on('recording:error', (payload: { message: string }) => {
+        setRecording(false);
+        setRecordingError(payload.message);
       })
     );
 
@@ -554,6 +586,16 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.send('participant:mute', { targetId, muted });
   }, [ws]);
 
+  const startRecording = useCallback(() => {
+    setRecordingError(null);
+    setRecordingResult(null);
+    ws.send('recording:start', {});
+  }, [ws]);
+
+  const stopRecording = useCallback(() => {
+    ws.send('recording:stop', {});
+  }, [ws]);
+
   const setParticipantCamera = useCallback((targetId: string, cameraOff: boolean) => {
     ws.send('participant:camera', { targetId, cameraOff });
   }, [ws]);
@@ -579,6 +621,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     setParticipants([]);
     setMessages([]);
     setCaptions([]);
+    setRecording(false);
+    setRecordingResult(null);
+    setRecordingError(null);
     api.clearRoomToken();
     clearSessionSnapshot();
   }, [ws, liveKitRoom]);
@@ -642,6 +687,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     livekitUrl,
     captions,
     gameQuiet,
+    recording,
+    recordingResult,
+    recordingError,
   };
 
   const actions = useMemo<MeetingActions>(
@@ -654,6 +702,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       toggleHand,
       toggleTranscription,
       endMeeting,
+      startRecording,
+      stopRecording,
       muteParticipant,
       setParticipantCamera,
       removeParticipant,
@@ -671,6 +721,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       toggleHand,
       toggleTranscription,
       endMeeting,
+      startRecording,
+      stopRecording,
       muteParticipant,
       setParticipantCamera,
       removeParticipant,

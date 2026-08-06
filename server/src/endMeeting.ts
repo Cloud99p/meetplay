@@ -1,6 +1,7 @@
 import { updateRoom, deleteTranscriptEvents } from './db/queries.js';
 import { destroyGameEngine } from './games/engine.js';
 import { deleteLiveKitRoom } from './livekit/moderation.js';
+import { stopRecordingForRoomEnd } from './livekit/recording.js';
 import { channelManager } from './ws/channels.js';
 
 /**
@@ -21,6 +22,9 @@ export async function endMeetingRoom(roomId: string): Promise<void> {
   await updateRoom(roomId, { state: 'ended', ended_at: new Date().toISOString() });
   await deleteTranscriptEvents(roomId);
   destroyGameEngine(roomId);
+  // Finalize any live recording before the room is deleted (egress needs the
+  // room alive to finish writing the file).
+  await stopRecordingForRoomEnd(roomId);
   await deleteLiveKitRoom(roomId);
   channelManager.broadcast(roomId, { type: 'room:ended', payload: {} });
   channelManager.closeRoom(roomId);

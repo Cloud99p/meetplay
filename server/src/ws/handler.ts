@@ -22,6 +22,7 @@ import {
   setParticipantMediaMuted,
   removeParticipantFromLiveKit,
 } from '../livekit/moderation.js';
+import { isRecording, startRecording, stopRecording } from '../livekit/recording.js';
 
 // Track host disconnect timers: roomId -> { hostId, timer }
 const hostTimers = new Map<string, { hostId: string; timer: NodeJS.Timeout }>();
@@ -72,6 +73,7 @@ async function sendRoomState(roomId: string, ws: WebSocket) {
         })),
         transcriptionEnabled: room.transcription_enabled,
         roomState: room.state,
+        recording: isRecording(roomId),
         activeRound,
         leaderboard,
       },
@@ -380,6 +382,46 @@ async function handleMessage(
       if (!isHost) return;
       await endMeetingRoom(roomId);
       cancelHostTimersForRoom(roomId);
+      break;
+    }
+
+    case 'recording:start': {
+      const isHost = await checkIsHost(roomId, senderId);
+      if (!isHost) return;
+      const res = await startRecording(roomId);
+      if (res.ok) {
+        channelManager.broadcast(roomId, {
+          type: 'recording:started',
+          payload: { recording: true, startedAt: res.startedAt },
+        });
+      } else {
+        channelManager.sendTo(roomId, senderId, {
+          type: 'recording:error',
+          payload: { message: res.error },
+        });
+      }
+      break;
+    }
+
+    case 'recording:stop': {
+      const isHost = await checkIsHost(roomId, senderId);
+      if (!isHost) return;
+      const res = await stopRecording(roomId);
+      if (res.ok) {
+        channelManager.broadcast(roomId, {
+          type: 'recording:stopped',
+          payload: {
+            recording: false,
+            downloadUrl: res.downloadUrl,
+            filename: res.filename,
+          },
+        });
+      } else {
+        channelManager.sendTo(roomId, senderId, {
+          type: 'recording:error',
+          payload: { message: res.error },
+        });
+      }
       break;
     }
 

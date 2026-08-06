@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
 import { useStt } from '../../hooks/useStt';
-import { FiAlertTriangle, FiLink, FiUsers } from 'react-icons/fi';
+import { FiAlertTriangle, FiCircle, FiLink, FiUsers } from 'react-icons/fi';
 import VideoGrid from './VideoGrid';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
@@ -28,7 +28,13 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  const [recordingNoticeDismissed, setRecordingNoticeDismissed] = useState(false);
   const { localParticipant } = useLocalParticipant();
+
+  // Re-show recording result/error notices when a new one arrives
+  useEffect(() => {
+    setRecordingNoticeDismissed(false);
+  }, [state.recordingResult, state.recordingError]);
 
   // Mock STT lifecycle: starts when transcription is on + room connected,
   // wires utterances to the server, uses the local participant id as speaker.
@@ -158,6 +164,60 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         </div>
       )}
 
+      {/* Recording result / error notices */}
+      {state.recordingResult && !recordingNoticeDismissed && (
+        <div
+          role="status"
+          className="flex items-center gap-3 px-4 py-2.5 bg-primary/10 border-b border-primary/30 text-sm text-foreground"
+        >
+          <FiCircle className="w-4 h-4 text-primary flex-shrink-0 fill-current" />
+          <p className="flex-1 min-w-0">
+            <span className="font-semibold">Recording saved</span>
+            {state.recordingResult.downloadUrl ? (
+              <>
+                <span className="text-muted"> — </span>
+                <a
+                  href={state.recordingResult.downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline text-primary hover:text-primary/80"
+                >
+                  Download recording
+                </a>
+              </>
+            ) : (
+              <span className="text-muted">
+                {' '}— file finalized on the LiveKit server{state.recordingResult.filename ? ` (${state.recordingResult.filename})` : ''}. Ask the host for the download link.
+              </span>
+            )}
+          </p>
+          <button
+            onClick={() => setRecordingNoticeDismissed(true)}
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-bg-elevated hover:bg-border transition-colors cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {state.recordingError && !recordingNoticeDismissed && (
+        <div
+          role="alert"
+          className="flex items-center gap-3 px-4 py-2.5 bg-destructive/10 border-b border-destructive/30 text-sm text-foreground"
+        >
+          <FiAlertTriangle className="w-4 h-4 text-destructive flex-shrink-0" />
+          <p className="flex-1 min-w-0">
+            <span className="font-semibold">Recording failed</span>
+            <span className="text-muted"> — {state.recordingError}</span>
+          </p>
+          <button
+            onClick={() => setRecordingNoticeDismissed(true)}
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-bg-elevated hover:bg-border transition-colors cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Video area */}
@@ -170,6 +230,14 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
           {/* Captions overlay */}
           <CaptionsOverlay captions={state.captions} visible={state.transcriptionEnabled} />
+
+          {/* REC pill — visible to everyone while recording */}
+          {state.recording && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-destructive/90 text-white rounded-full text-xs font-semibold shadow-lg z-20">
+              <FiCircle className="w-2.5 h-2.5 fill-white animate-pulse" />
+              REC
+            </div>
+          )}
 
           {/* View mode toggle */}
           <button
@@ -273,6 +341,10 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
       <ControlBar
         isHost={state.isHost}
         transcriptionEnabled={state.transcriptionEnabled}
+        recording={state.recording}
+        onToggleRecording={() =>
+          state.recording ? actions.stopRecording() : actions.startRecording()
+        }
         onToggleMic={handleToggleMic}
         onToggleCam={handleToggleCam}
         onToggleScreenShare={handleToggleScreenShare}
