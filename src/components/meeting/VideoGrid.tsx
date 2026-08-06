@@ -11,6 +11,7 @@ export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
   const remoteParticipants = useRemoteParticipants();
   const { localParticipant } = useLocalParticipant();
   const cameraTracks = useTracks([Track.Source.Camera]);
+  const screenTracks = useTracks([Track.Source.ScreenShare, Track.Source.ScreenShareAudio]);
   const [cols, setCols] = useState(2);
 
   const participantCount = remoteParticipants.length + 1;
@@ -53,9 +54,34 @@ export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
     return map;
   }, [cameraTracks]);
 
-  return (
+  // Map participant identity -> active screen-share video track
+  const screenByParticipant = useMemo(() => {
+    const map = new Map<string, TrackReference>();
+    for (const t of screenTracks) {
+      if (!t.publication) continue;
+      // Only the video share (ScreenShareAudio is the mic pick-up track)
+      if (t.source !== Track.Source.ScreenShare) continue;
+      if (t.publication.isMuted) continue;
+      if (!map.has(t.participant.identity)) {
+        map.set(t.participant.identity, t);
+      }
+    }
+    return map;
+  }, [screenTracks]);
+
+  // First sharer wins the spotlight (LiveKit rooms rarely have multiple)
+  const activeShareEntry = [...screenByParticipant.entries()][0];
+  const activeShare = activeShareEntry?.[1];
+  const sharerName =
+    activeShareEntry?.[0] === (localParticipant?.identity ?? 'local')
+      ? 'You'
+      : remoteParticipants.find((p) => p.identity === activeShareEntry?.[0])?.name ??
+        activeShareEntry?.[0] ??
+        '';
+
+  const cameraGrid = (
     <div
-      className={`video-grid ${className}`}
+      className="grid gap-2 min-h-0 flex-1"
       style={{
         gridTemplateColumns: `repeat(${cols}, 1fr)`,
         gridTemplateRows: `repeat(${Math.ceil(tiles.length / cols)}, 1fr)`,
@@ -70,6 +96,30 @@ export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
           onClick={() => onSpeakerClick?.(tile.participantId)}
         />
       ))}
+    </div>
+  );
+
+  // Someone is presenting: show the shared screen big, cameras below
+  if (activeShare) {
+    return (
+      <div className={`flex flex-col h-full gap-2 ${className}`}>
+        <div className="relative flex-[2] min-h-0 rounded-lg overflow-hidden bg-black border border-border">
+          <VideoTrack trackRef={activeShare} className="w-full h-full object-contain" />
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
+            <span className="text-xs font-medium text-white flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+              {sharerName} is presenting
+            </span>
+          </div>
+        </div>
+        {cameraGrid}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`h-full ${className}`}>
+      {cameraGrid}
     </div>
   );
 }

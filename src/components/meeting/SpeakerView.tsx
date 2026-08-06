@@ -10,6 +10,7 @@ interface Props {
 export default function SpeakerView({ activeSpeakerId, className = '' }: Props) {
   const remoteParticipants = useRemoteParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
+  const screenTracks = useTracks([Track.Source.ScreenShare, Track.Source.ScreenShareAudio]);
 
   const trackByParticipant = useMemo(() => {
     const map = new Map<string, TrackReference>();
@@ -25,6 +26,21 @@ export default function SpeakerView({ activeSpeakerId, className = '' }: Props) 
     return map;
   }, [cameraTracks]);
 
+  // Map participant identity -> active screen-share video track
+  const screenByParticipant = useMemo(() => {
+    const map = new Map<string, TrackReference>();
+    for (const t of screenTracks) {
+      if (!t.publication) continue;
+      // Only the video share (ScreenShareAudio is the mic pick-up track)
+      if (t.source !== Track.Source.ScreenShare) continue;
+      if (t.publication.isMuted) continue;
+      if (!map.has(t.participant.identity)) {
+        map.set(t.participant.identity, t);
+      }
+    }
+    return map;
+  }, [screenTracks]);
+
   const activeParticipant = activeSpeakerId
     ? remoteParticipants.find((p) => p.identity === activeSpeakerId)
     : null;
@@ -32,16 +48,34 @@ export default function SpeakerView({ activeSpeakerId, className = '' }: Props) 
   const speaker = activeParticipant || remoteParticipants[0];
   const speakerTrack = speaker ? trackByParticipant.get(speaker.identity) : undefined;
 
+  // Screen share takes over the main stage when someone presents
+  const activeShareEntry = [...screenByParticipant.entries()][0];
+  const activeShare = activeShareEntry?.[1];
+  const presenterName =
+    remoteParticipants.find((p) => p.identity === activeShareEntry?.[0])?.name ??
+    activeShareEntry?.[0] ??
+    '';
+
   const strip = remoteParticipants.filter((p) => p.identity !== speaker?.identity);
 
   return (
     <div className={`flex flex-col h-full gap-2 ${className}`}>
-      {/* Main speaker */}
-      <div className="flex-1 relative rounded-lg overflow-hidden bg-bg-elevated border border-border">
-        {speaker && speakerTrack ? (
+      {/* Main stage: shared screen while presenting, else the active speaker */}
+      <div className="flex-1 relative rounded-lg overflow-hidden bg-black border border-border">
+        {activeShare ? (
+          <>
+            <VideoTrack trackRef={activeShare} className="w-full h-full object-contain" />
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3">
+              <span className="text-sm font-medium text-white flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+                {presenterName} is presenting
+              </span>
+            </div>
+          </>
+        ) : speaker && speakerTrack ? (
           <VideoTrack trackRef={speakerTrack} className="w-full h-full object-cover" />
         ) : (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-full bg-bg-elevated">
             <div className="text-center">
               <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-2">
                 <span className="text-primary text-2xl font-heading font-semibold">
