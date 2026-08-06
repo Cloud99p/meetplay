@@ -10,9 +10,17 @@ import { loadConfig } from '../config.js';
  * to Deepgram carrying the key in an Authorization header (WebSocket headers
  * are only possible server-side).
  *
+ * Model-aware endpoint (DEEPGRAM_MODEL env):
+ *   - nova-2            -> v1 /listen + diarize=true  (multi-speaker; powers
+ *                         the "Who Said That?" game)
+ *   - flux-general-en   -> v2 /listen (turn-based Flux events:
+ *                         StartOfTurn / TurnUpdate / EndOfTurn) — single
+ *                         speaker stream, ultra-low latency, end-of-turn
+ *                         detection (eot_threshold / eot_timeout_ms).
+ *
  * Flow:  client <--ws--> server <--ws+auth--> api.deepgram.com
  * - Client messages (Configure JSON, then raw PCM16 audio) are forwarded up.
- * - Deepgram Results messages are forwarded down.
+ * - Deepgram result events are forwarded down.
  * - Messages from the client before the upstream socket opens are buffered
  *   and flushed on open (avoids the Configure race).
  */
@@ -25,19 +33,32 @@ export async function sttRoutes(app: FastifyInstance) {
       return;
     }
 
+    const model = cfg.deepgramModel;
+    const isFlux = model.startsWith('flux');
+
     const params = new URLSearchParams({
-      model: 'nova-2',
-      diarize: 'true',
-      interim_results: 'true',
-      punctuate: 'true',
+      model,
       encoding: 'linear16',
       sample_rate: '16000',
-      channels: '1',
     });
+
+    if (isFlux) {
+      // v2 Flux: turn-based, end-of-turn detection. No diarization (single speaker).
+      params.set('eot_threshold', '0.7');
+      params.set('eot_timeout_ms', '5000');
+    } else {
+      // v1: diarized multi-speaker (required for "Who Said That?" game).
+      params.set('diarize', 'true');
+      params.set('interim_results', 'true');
+      params.set('punctuate', 'true');
+      params.set('channels', '1');
+    }
+
+    const endpoint = isFlux ? 'wss://api.deepgram.com/v2/listen' : 'wss://api.deepgram.com/v1/listen';
 
     let upstream: WebSocket;
     try {
-      upstream = new WebSocket(`wss://api.deepgram.com/v1/listen?${params.toString()}`, {
+      upstream = new WebSocket(`${endpoint}?${params.toString()}`, {
         headers: { Authorization: `Token ${cfg.deepgramApiKey}` },
       });
     } catch (err) {
@@ -63,7 +84,7 @@ export async function sttRoutes(app: FastifyInstance) {
       flushPending();
     });
 
-    // Upstream -> client (Results JSON, Metadata, etc.)
+    // Upstream -> client (Results JSON, TurnInfo events, Metadata, etc.)
     upstream.on('message', (data) => {
       if (socket.readyState === socket.OPEN) socket.send(data.toString());
     });

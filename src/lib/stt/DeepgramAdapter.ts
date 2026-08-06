@@ -26,6 +26,7 @@ export class DeepgramAdapter implements STTAdapter {
   private stopped = false;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastInterimText = '';
 
   start(): void {
     if (this.running) return;
@@ -131,6 +132,45 @@ export class DeepgramAdapter implements STTAdapter {
       return;
     }
 
+    // ---- v2 Flux: turn-based events (StartOfTurn / Update / EndOfTurn) ----
+    if (msg.type === 'TurnInfo' || typeof msg.event === 'string') {
+      const event = msg.event ?? msg.type;
+      const text = (msg.transcript ?? '').trim();
+      if (event === 'StartOfTurn') {
+        this.lastInterimText = '';
+        return;
+      }
+      if (event === 'EndOfTurn' || event === 'EagerEndOfTurn') {
+        this.lastInterimText = '';
+        if (text) {
+          this.onUtterance?.({
+            speakerId: 'local',
+            text,
+            timestamp: Date.now(),
+            isFinal: true,
+          });
+        }
+        return;
+      }
+      if (event === 'Update' || event === 'TurnUpdate') {
+        // v2 Update events resend the FULL accumulated turn text — only emit
+        // when it changed, so the captions overlay doesn't get spammed.
+        // Games ignore non-final text anyway.
+        if (text && text !== this.lastInterimText) {
+          this.lastInterimText = text;
+          this.onUtterance?.({
+            speakerId: 'local',
+            text,
+            timestamp: Date.now(),
+            isFinal: false,
+          });
+        }
+        return;
+      }
+      return;
+    }
+
+    // ---- v1: Results messages (diarized multi-speaker) ----
     if (msg.type !== 'Results' || !msg.channel?.alternatives?.length) return;
 
     const alt = msg.channel.alternatives[0];

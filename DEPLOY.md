@@ -37,6 +37,7 @@ This repo includes `railway.json` (Dockerfile builder, `/health` probe).
 | `RATE_LIMIT_MAX` | `120` | API rate limit per IP per minute |
 | `PORT` | `3001` | Server port (Railway injects it automatically) |
 | `DEEPGRAM_API_KEY` | — | Deepgram key (server-side /api/stt proxy) — required when `VITE_STT_MODE=deepgram` |
+| `DEEPGRAM_MODEL` | `nova-2` | `nova-2` (v1, diarized multi-speaker — needed for games) or `flux-general-en` (v2, turn-based, no diarization) |
 | `VITE_STT_MODE` | `mock` | `mock` \| `webspeech` \| `deepgram` (baked at build time) |
 | `VITE_LIVEKIT_URL` | — | Client-side LiveKit URL override (baked at build time) |
 | `VITE_SERVER_URL` | `''` (same-origin) | Override API/WS base URL |
