@@ -24,6 +24,7 @@ export const setRoomHost = impl.setRoomHost;
 
 export const addParticipant = impl.addParticipant;
 export const getParticipantsByRoom = impl.getParticipantsByRoom;
+export const getParticipantByRoomAndUser = impl.getParticipantByRoomAndUser;
 export const getParticipantById = impl.getParticipantById;
 export const removeParticipant = impl.removeParticipant;
 export const promoteToHost = impl.promoteToHost;

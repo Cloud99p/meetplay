@@ -3,6 +3,7 @@ import {
   createRoom,
   getRoomById,
   getParticipantById,
+  getParticipantByRoomAndUser,
   addParticipant,
   getParticipantsByRoom,
   getChatMessages,
@@ -110,7 +111,7 @@ export async function roomsRoutes(app: FastifyInstance) {
       if (!ok) return reply.code(401).send({ error: 'Wrong password' });
     }
 
-    const name =
+    let name =
       (typeof body.participantName === 'string' && body.participantName.trim()) ||
       (typeof body.name === 'string' && body.name.trim())
         ? ((body.participantName ?? body.name) as string).trim().slice(0, 40)
@@ -125,12 +126,28 @@ export async function roomsRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'Name already taken in this room' });
     }
 
-    const participant = await addParticipant({
-      roomId: id,
-      name,
-      isHost: false,
-      userId: body.userId,
-    });
+    // Refresh recovery: if this browser (same userId) already has a
+    // participant row in this room — e.g. they hit refresh, which dropped
+    // their connection but left the row — REUSE that row instead of creating
+    // a duplicate "same name, different account". This also preserves their
+    // original participant id so chat/game state stays tied to them.
+    let participant;
+    if (body.userId) {
+      participant = await getParticipantByRoomAndUser(id, body.userId);
+      if (participant) {
+        // Keep the existing name (the user may have changed it on the form;
+        // but their original identity is what other participants know them by)
+        name = participant.name;
+      }
+    }
+    if (!participant) {
+      participant = await addParticipant({
+        roomId: id,
+        name,
+        isHost: false,
+        userId: body.userId,
+      });
+    }
 
     const token = generateRoomToken({
       roomId: id,

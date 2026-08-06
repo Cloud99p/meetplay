@@ -64,6 +64,14 @@ export async function getParticipantsByRoom(roomId: string) {
   return rows;
 }
 
+export async function getParticipantByRoomAndUser(roomId: string, userId: string) {
+  const { rows } = await pool.query(
+    `SELECT * FROM participants WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
+    [roomId, userId]
+  );
+  return rows[0] ?? null;
+}
+
 export async function getParticipantById(id: string) {
   const { rows } = await pool.query(`SELECT * FROM participants WHERE id = $1`, [id]);
   return rows[0] ?? null;

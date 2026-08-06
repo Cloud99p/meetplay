@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 import { RoomContext } from '@livekit/components-react';
 import { useMeeting } from './hooks/useMeeting';
@@ -80,8 +80,36 @@ function MeetingRoute({
   onLeave: () => void;
 }) {
   const roomId = useParamsRoomId();
+  const [resuming, setResuming] = useState(false);
+  const [resumeFailed, setResumeFailed] = useState(false);
+  const triedRef = useRef(false);
 
-  if (!state.room || state.room.id !== roomId) {
+  // Refresh recovery: if we landed on /meeting/:roomId with no active room in
+  // memory (page reload), try to resume from the session snapshot instead of
+  // bouncing the user back to the lobby with no way back in.
+  useEffect(() => {
+    if (state.room || !roomId || triedRef.current) return;
+    triedRef.current = true;
+    setResuming(true);
+    actions
+      .resumeSession()
+      .then((ok) => {
+        if (!ok) setResumeFailed(true);
+      })
+      .catch(() => setResumeFailed(true))
+      .finally(() => setResuming(false));
+  }, [state.room, roomId, actions]);
+
+  if (resuming) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center gap-3 bg-bg text-foreground px-6">
+        <div className="w-10 h-10 rounded-full border-4 border-border border-t-primary animate-spin" />
+        <p className="text-sm text-muted">Rejoining your meeting…</p>
+      </div>
+    );
+  }
+
+  if (resumeFailed || !state.room || state.room.id !== roomId) {
     return <Navigate to="/" replace />;
   }
 

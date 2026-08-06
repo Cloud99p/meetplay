@@ -55,10 +55,10 @@ export default function ControlBar({
   const isCamOn = !camPub?.isMuted;
 
   const btnClass =
-    'flex items-center justify-center w-10 h-10 rounded-full bg-bg-elevated hover:bg-border text-foreground transition-colors duration-150 cursor-pointer active:scale-95';
+    'flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-bg-elevated hover:bg-border text-foreground transition-colors duration-150 cursor-pointer active:scale-95';
 
   return (
-    <div className="flex items-center justify-center gap-2 px-4 py-3 bg-bg-surface border-t border-border">
+    <div className="flex flex-wrap items-center justify-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-bg-surface border-t border-border">
       {/* Mic */}
       <button onClick={onToggleMic} className={`${btnClass} ${!isMicOn ? 'bg-destructive/20 text-destructive' : ''}`} title={isMicOn ? 'Mute' : 'Unmute'}>
         {isMicOn ? <FiMic className="w-4 h-4" /> : <FiMicOff className="w-4 h-4" />}

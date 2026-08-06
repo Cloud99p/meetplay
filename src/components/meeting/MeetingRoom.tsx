@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
 import { useStt } from '../../hooks/useStt';
-import { FiAlertTriangle, FiLink } from 'react-icons/fi';
+import { FiAlertTriangle, FiLink, FiUsers } from 'react-icons/fi';
 import VideoGrid from './VideoGrid';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
@@ -149,9 +149,9 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
       )}
 
       {/* Main content area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Video area */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0">
           {viewMode === 'grid' ? (
             <VideoGrid onSpeakerClick={(id) => { setActiveSpeakerId(id); setViewMode('speaker'); }} />
           ) : (
@@ -164,13 +164,13 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
           {/* View mode toggle */}
           <button
             onClick={() => setViewMode(viewMode === 'grid' ? 'speaker' : 'grid')}
-            className="absolute top-4 left-4 px-3 py-1.5 bg-caption-bg backdrop-blur-sm text-xs text-foreground rounded-md hover:bg-bg-elevated transition-colors cursor-pointer"
+            className="absolute top-4 left-4 px-2.5 sm:px-3 py-1.5 bg-caption-bg backdrop-blur-sm text-xs text-foreground rounded-md hover:bg-bg-elevated transition-colors cursor-pointer"
           >
-            {viewMode === 'grid' ? 'Speaker View' : 'Grid View'}
+            {viewMode === 'grid' ? 'Speaker' : 'Grid'}
           </button>
 
           {/* Side panel buttons on video */}
-          <div className="absolute top-4 right-4 flex gap-2">
+          <div className="absolute top-4 right-4 flex gap-1.5 sm:gap-2">
             <button
               onClick={() => {
                 const url = `${window.location.origin}/#/join/${state.room?.id}`;
@@ -179,27 +179,29 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                   setTimeout(() => setInviteCopied(false), 2000);
                 });
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated"
               title="Copy invite link"
             >
               <FiLink className="w-3.5 h-3.5" />
-              {inviteCopied ? 'Link copied!' : 'Invite'}
+              {inviteCopied ? 'Copied!' : 'Invite'}
             </button>
             <button
               onClick={() => { setShowParticipants(false); setShowGames(false); setShowChat(!showChat); }}
-              className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showChat ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showChat ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
             >
               Chat
             </button>
             <button
               onClick={() => { setShowChat(false); setShowGames(false); setShowParticipants(!showParticipants); }}
-              className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showParticipants ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showParticipants ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
             >
-              People ({state.participants.length})
+              <FiUsers className="w-3.5 h-3.5 inline-block sm:hidden" />
+              <span className="hidden sm:inline">People ({state.participants.length})</span>
+              <span className="sm:hidden">({state.participants.length})</span>
             </button>
             <button
               onClick={() => { setShowChat(false); setShowParticipants(false); setShowGames(!showGames); }}
-              className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showGames ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showGames ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
             >
               Games
             </button>
@@ -208,7 +210,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
         {/* Right side panel */}
         {sidePanelOpen && (
-          <div className="w-80 border-l border-border bg-bg-surface flex flex-col">
+          <div className="absolute inset-y-0 right-0 w-full sm:w-80 sm:relative sm:inset-auto border-l border-border bg-bg-surface flex flex-col z-30 shadow-2xl sm:shadow-none">
             {showChat && (
               <ChatPanel
                 messages={state.messages}

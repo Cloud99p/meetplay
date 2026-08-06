@@ -5,6 +5,7 @@ import type { LeaderboardEntry, RoomStateSnapshot } from '../types/games';
 import type { ChatMessage } from '../types/chat';
 import * as api from '../lib/api';
 import { connectToLiveKitWithRetry, reconnectLiveKit } from '../lib/livekit';
+import { saveSessionSnapshot, clearSessionSnapshot, getSessionSnapshot } from '../lib/session';
 import { useWebSocket } from './useWebSocket';
 
 export interface MeetingState {
@@ -36,6 +37,7 @@ export interface MeetingState {
 export interface MeetingActions {
   createAndJoin: (name?: string, password?: string) => Promise<string>;
   joinRoom: (roomId: string, name: string, password?: string) => Promise<void>;
+  resumeSession: () => Promise<boolean>;
   sendChat: (content: string) => void;
   sendEmoji: (emoji: string) => void;
   toggleHand: (raised: boolean) => void;
@@ -291,6 +293,16 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     // Connect WebSocket
     ws.connect(result.room.id, result.participant.id, result.token);
 
+    saveSessionSnapshot({
+      roomId: result.room.id,
+      participantId: result.participant.id,
+      participantName: result.participant.name || 'Host',
+      isHost: true,
+      livekitUrl: result.livekitUrl,
+      token: result.token,
+      password,
+    });
+
     // Connect LiveKit
     if (result.livekitAvailable === false) {
       // Server confirmed LiveKit is unreachable — skip the 8 s timeout
@@ -347,6 +359,16 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     // Connect WebSocket
     ws.connect(result.room.id, result.participant.id, result.token);
 
+    saveSessionSnapshot({
+      roomId: result.room.id,
+      participantId: result.participant.id,
+      participantName: result.participant.name,
+      isHost: false,
+      livekitUrl: result.livekitUrl,
+      token: result.token,
+      password,
+    });
+
     // Fetch chat history
     try {
       const history = await api.getChatHistory(roomId);
@@ -390,6 +412,81 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         setLiveKitConnected(true);
       }
       setLiveKitRoom(lkRoom);
+    }
+  }, [ws]);
+
+  /**
+   * Resume a meeting after an accidental refresh. Rejoins the room via the
+   * same userId — the server reuses the existing participant row (no
+   * duplicate) — then restores WS + LiveKit + host status.
+   * Returns true on success.
+   */
+  const resumeSession = useCallback(async (): Promise<boolean> => {
+    const snap = getSessionSnapshot();
+    if (!snap) return false;
+
+    intentionallyLeftRef.current = false;
+    try {
+      const result = await api.joinRoom(snap.roomId, snap.participantName, snap.password);
+      roomTokenRef.current = result.token;
+      roomIdRef.current = result.room.id;
+      setRoom(result.room as Room);
+      setParticipantId(result.participant.id);
+      setParticipantName(result.participant.name);
+      setIsHost(snap.isHost); // restore host status (WS room:state also syncs it)
+      setLivekitUrl(result.livekitUrl);
+      setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: snap.isHost, isMuted: false }]);
+
+      ws.connect(result.room.id, result.participant.id, result.token);
+
+      // Re-fetch chat history
+      try {
+        const history = await api.getChatHistory(snap.roomId);
+        setMessages(history.messages);
+      } catch {
+        /* no history */
+      }
+
+      // LiveKit: same token flow; retry wrapper handles transient blips.
+      if (result.livekitAvailable === false) {
+        setLivekitError('The media server is not running or unreachable.');
+        setLiveKitConnected(false);
+      } else {
+        const lkToken = await api.getLiveKitToken(
+          result.room.id,
+          result.participant.id,
+          result.participant.name,
+          result.token
+        );
+        lkParamsRef.current = {
+          roomName: result.room.id,
+          identity: result.participant.id,
+          participantName: result.participant.name,
+          token: lkToken.token,
+          url: result.livekitUrl,
+        };
+        const { room: lkRoom, error } = await connectToLiveKitWithRetry(
+          result.room.id,
+          result.participant.id,
+          result.participant.name,
+          lkToken.token,
+          result.livekitUrl
+        );
+        if (error) {
+          console.error('[meeting] LiveKit reconnect error after refresh:', error);
+          setLivekitError(error);
+          setLiveKitConnected(false);
+        } else {
+          setLivekitError(null);
+          setLiveKitConnected(true);
+        }
+        setLiveKitRoom(lkRoom);
+      }
+      return true;
+    } catch (e) {
+      console.error('[meeting] resumeSession failed:', e);
+      clearSessionSnapshot();
+      return false;
     }
   }, [ws]);
 
@@ -446,6 +543,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     setMessages([]);
     setCaptions([]);
     api.clearRoomToken();
+    clearSessionSnapshot();
   }, [ws, liveKitRoom]);
 
   const sendCaption = useCallback((speakerId: string, text: string, isFinal: boolean) => {
@@ -513,6 +611,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     () => ({
       createAndJoin,
       joinRoom,
+      resumeSession,
       sendChat,
       sendEmoji,
       toggleHand,
@@ -528,6 +627,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     [
       createAndJoin,
       joinRoom,
+      resumeSession,
       sendChat,
       sendEmoji,
       toggleHand,

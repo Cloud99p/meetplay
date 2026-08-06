@@ -147,6 +147,13 @@ export async function getParticipantsByRoom(roomId: string) {
   return rows;
 }
 
+export async function getParticipantByRoomAndUser(roomId: string, userId: string) {
+  for (const p of store.participants.values()) {
+    if (p.room_id === roomId && p.user_id === userId) return p;
+  }
+  return null;
+}
+
 export async function getParticipantById(id: string) {
   return store.participants.get(id) ?? null;
 }
