@@ -28,6 +28,7 @@ export interface MeetingState {
     isFinal: boolean;
     timestamp: number;
   }>;
+  gameQuiet: boolean;
 }
 
 export interface MeetingActions {
@@ -62,6 +63,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [captions, setCaptions] = useState<MeetingState['captions']>([]);
   const [livekitError, setLivekitError] = useState<string | null>(null);
   const [liveKitConnected, setLiveKitConnected] = useState(false);
+  // Quiet mode: true while ANY participant is screen-sharing (host presenting).
+  // Games keep syncing state but suppress attention-drawing notifications.
+  const [gameQuiet, setGameQuiet] = useState(false);
 
   const roomTokenRef = useRef<string | null>(null);
   const roomIdRef = useRef<string | null>(null);
@@ -367,6 +371,39 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.send('caption:event', { speakerId, text, isFinal });
   }, [ws]);
 
+  // Quiet mode: watch LiveKit for any active screen-share track.
+  // When a participant starts presenting, game notifications suspend.
+  useEffect(() => {
+    if (!liveKitRoom) {
+      setGameQuiet(false);
+      return;
+    }
+    const update = () => {
+      const anySharing = Array.from(liveKitRoom.remoteParticipants.values()).some(
+        (p) => p.isScreenShareEnabled
+      ) || liveKitRoom.localParticipant.isScreenShareEnabled;
+      setGameQuiet(anySharing);
+    };
+    const onTrackSub = (p: any) => {
+      const pub = p?.getTrackPublications?.().find((t: any) => t.source === 'screen_share');
+      pub?.on('subscribed', update);
+      pub?.on('unsubscribed', update);
+    };
+    liveKitRoom.localParticipant.on('trackPublished', update);
+    liveKitRoom.localParticipant.on('trackUnpublished', update);
+    liveKitRoom.on('participantConnected', onTrackSub);
+    liveKitRoom.on('participantDisconnected', update);
+    update();
+    const interval = setInterval(update, 2000); // safety net for edge cases
+    return () => {
+      clearInterval(interval);
+      liveKitRoom.localParticipant.off('trackPublished', update);
+      liveKitRoom.localParticipant.off('trackUnpublished', update);
+      liveKitRoom.off('participantConnected', onTrackSub);
+      liveKitRoom.off('participantDisconnected', update);
+    };
+  }, [liveKitRoom]);
+
   const submitAnswer = useCallback((roundId: string, answer: unknown) => {
     ws.send('game:submit', { roundId, answer });
   }, [ws]);
@@ -387,6 +424,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     activeRound,
     livekitUrl,
     captions,
+    gameQuiet,
   };
 
   const actions = useMemo<MeetingActions>(

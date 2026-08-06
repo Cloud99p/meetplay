@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
+import rateLimit from '@fastify/rate-limit';
 import path from 'node:path';
 import fs from 'node:fs';
 import { roomsRoutes } from './routes/rooms.js';
@@ -23,6 +24,13 @@ if (!USE_MEMORY) {
 
 await app.register(cors, { origin: true });
 await app.register(websocket);
+
+// Rate limit all REST APIs (privacy/security NFR): 120 req/min per IP,
+// slightly stricter on room creation/join to deter abuse.
+await app.register(rateLimit, {
+  max: Number(process.env.RATE_LIMIT_MAX ?? 120),
+  timeWindow: '1 minute',
+});
 
 app.get('/health', async () => ({ ok: true, service: 'meetplay-server' }));
 

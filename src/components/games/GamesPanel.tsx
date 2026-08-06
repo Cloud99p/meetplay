@@ -12,9 +12,11 @@ interface Props {
   onSubmit: (answer: unknown) => void;
   participantId: string | null;
   transcriptionEnabled: boolean;
+  /** Quiet mode: host presenting / screen-sharing — notifications suspended. */
+  quiet?: boolean;
 }
 
-export default function GamesPanel({ activeRound, leaderboard, onSubmit, participantId, transcriptionEnabled }: Props) {
+export default function GamesPanel({ activeRound, leaderboard, onSubmit, participantId, transcriptionEnabled, quiet }: Props) {
   const [tab, setTab] = useState<'game' | 'board'>('game');
 
   return (
@@ -23,6 +25,11 @@ export default function GamesPanel({ activeRound, leaderboard, onSubmit, partici
         <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${transcriptionEnabled ? 'bg-success animate-pulse-dot' : 'bg-muted'}`} />
           Games
+          {quiet && (
+            <span className="text-[10px] font-normal text-muted bg-bg-elevated px-1.5 py-0.5 rounded">
+              quiet — presenting
+            </span>
+          )}
         </h3>
         <div className="flex gap-1">
           <button
