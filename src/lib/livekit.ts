@@ -5,6 +5,17 @@ export interface LiveKitConnection {
   error?: string;
 }
 
+export interface LiveKitRetryOptions {
+  /** Total connect attempts including the first (default 4). */
+  maxAttempts?: number;
+  /** Base backoff in ms between attempts (default 1500, doubles each time). */
+  baseDelayMs?: number;
+  /** Max delay cap in ms (default 10000). */
+  maxDelayMs?: number;
+  /** Called after each failed attempt (attempt index, delay before next). */
+  onRetry?: (attempt: number, nextDelayMs: number, error: string) => void;
+}
+
 // LiveKit SDK's default connect timeout is 15s; we lower it so the UI
 // recovers faster when the media server isn't reachable. Retries are handled
 // explicitly by connectToLiveKitWithRetry below.
@@ -16,26 +27,56 @@ const CONNECT_OPTIONS: RoomConnectOptions = {
   peerConnectionTimeout: CONNECT_TIMEOUT_MS,
 };
 
-const KNOWN_CONNECT_ERRORS: Array<{ pattern: string; friendly: string }> = [
+const KNOWN_CONNECT_ERRORS: Array<{ pattern: string; friendly: string; retryable: boolean }> = [
   {
     pattern: 'Abort handler called',
-    friendly: 'Connection to the media server timed out. Check that LiveKit is running.',
+    friendly: 'Connection to the media server timed out.',
+    retryable: true,
   },
   {
     pattern: 'Failed to fetch',
     friendly: 'The media server is not running or unreachable.',
+    retryable: true,
   },
   {
     pattern: 'ECONNREFUSED',
     friendly: 'The media server is not running or unreachable.',
+    retryable: true,
   },
   {
     pattern: 'server was not reachable',
     friendly: 'The media server is not running or unreachable.',
+    retryable: true,
   },
   {
     pattern: 'could not establish pc connection',
     friendly: 'Unable to establish a peer connection. Check your network and firewall.',
+    retryable: true,
+  },
+  {
+    pattern: 'network error',
+    friendly: 'Network error while connecting to the media server.',
+    retryable: true,
+  },
+  {
+    pattern: 'Invalid token',
+    friendly: 'The media server rejected the join token.',
+    retryable: false,
+  },
+  {
+    pattern: 'permission denied',
+    friendly: 'The media server denied access to this room.',
+    retryable: false,
+  },
+  {
+    pattern: 'room not found',
+    friendly: 'The meeting room does not exist on the media server.',
+    retryable: false,
+  },
+  {
+    pattern: 'not authorized',
+    friendly: 'You are not authorized to join this room.',
+    retryable: false,
   },
 ];
 
@@ -48,6 +89,18 @@ function normaliseError(msg: string): string {
     if (msg.includes(pattern)) return friendly;
   }
   return msg || 'Failed to connect to the media server';
+}
+
+/**
+ * Whether an error is worth retrying. Network/timeout/unreachable errors are
+ * transient — auth/permission errors are permanent and must surface immediately.
+ */
+function isRetryableError(msg: string): boolean {
+  const hit = KNOWN_CONNECT_ERRORS.find(({ pattern }) => msg.includes(pattern));
+  if (hit) return hit.retryable;
+  // Unknown errors: default to retryable (transient network issues are the
+  // common case; the attempt cap bounds the damage).
+  return true;
 }
 
 /**
@@ -144,33 +197,82 @@ export async function connectToLiveKit(
 }
 
 /**
- * Attempt to connect to LiveKit with a single retry — useful when the V1→V0
- * fallback race causes a false-negative on the first attempt.
+ * Attempt to connect to LiveKit with retries and exponential backoff.
+ *
+ * Survives transient network blips: if the probe fails or the WebSocket
+ * times out because the connection dipped, we back off and try again instead
+ * of surfacing "audio and video unavailable" immediately.
+ *
+ * Permanent errors (invalid token, permissions, room not found) surface
+ * immediately without retrying.
  */
 export async function connectToLiveKitWithRetry(
   roomName: string,
   identity: string,
   participantName: string,
   token: string,
-  url?: string
+  url?: string,
+  opts: LiveKitRetryOptions = {}
 ): Promise<LiveKitConnection> {
-  const first = await connectToLiveKit(roomName, identity, participantName, token, url);
-  if (!first.error) return first;
+  const maxAttempts = opts.maxAttempts ?? 4;
+  const baseDelayMs = opts.baseDelayMs ?? 1_500;
+  const maxDelayMs = opts.maxDelayMs ?? 10_000;
 
-  // Only retry on timeout/abort errors — not on permanent failures.
-  const retryable =
-    first.error.includes('timed out') ||
-    first.error.includes('unreachable') ||
-    first.error.includes('Connection to the media server');
+  let last: LiveKitConnection | null = null;
 
-  if (!retryable) return first;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    last = await connectToLiveKit(roomName, identity, participantName, token, url);
+    if (!last.error) return last;
 
-  // Brief back-off so the proxy / server can stabilise
-  await new Promise((r) => setTimeout(r, 1_500));
+    // Permanent error — do not burn retries on auth failures.
+    if (!isRetryableError(last.error)) return last;
 
-  const second = await connectToLiveKit(roomName, identity, participantName, token, url);
-  // Return the (possibly still failing) result — the MeetingRoom banner handles it.
-  return second;
+    if (attempt < maxAttempts) {
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+      opts.onRetry?.(attempt, delay, last.error);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  // All attempts exhausted — return the last failure; the caller decides
+  // whether to surface it (MeetingRoom banner) or keep retrying in the
+  // background via reconnectLiveKit.
+  return last ?? { room: new Room(), error: 'Failed to connect to the media server' };
+}
+
+/**
+ * Background reconnect with capped retries — used after an unexpected
+ * disconnect (network drop) to bring the room back without user action.
+ *
+ * Returns the reconnected room, or null once retries are exhausted.
+ * `shouldStop` lets the caller abort (e.g. the user left the meeting).
+ */
+export async function reconnectLiveKit(
+  roomName: string,
+  identity: string,
+  participantName: string,
+  token: string,
+  url: string,
+  opts: LiveKitRetryOptions & { shouldStop?: () => boolean } = {}
+): Promise<LiveKitConnection | null> {
+  const maxAttempts = opts.maxAttempts ?? 5;
+  const baseDelayMs = opts.baseDelayMs ?? 2_000;
+  const maxDelayMs = opts.maxDelayMs ?? 15_000;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (opts.shouldStop?.()) return null;
+
+    const result = await connectToLiveKit(roomName, identity, participantName, token, url);
+    if (!result.error) return result;
+    if (!isRetryableError(result.error)) return null;
+
+    if (attempt < maxAttempts) {
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+      opts.onRetry?.(attempt, delay, result.error);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  return null;
 }
 
 export function disconnect(room: Room): void {

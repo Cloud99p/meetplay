@@ -108,8 +108,28 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         </div>
       )}
 
+      {/* LiveKit reconnecting banner — network blip, auto-retrying in background */}
+      {state.liveKitReconnecting && !state.liveKitConnected && (
+        <div
+          role="status"
+          className="flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-sm text-foreground"
+        >
+          <FiAlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 animate-pulse" />
+          <p className="flex-1 min-w-0">
+            <span className="font-semibold">Video &amp; audio reconnecting…</span>
+            <span className="text-muted"> — network blip detected, retrying automatically. Hang tight.</span>
+          </p>
+          <button
+            onClick={onLeave}
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-bg-elevated hover:bg-border transition-colors cursor-pointer"
+          >
+            Leave meeting
+          </button>
+        </div>
+      )}
+
       {/* LiveKit unavailable banner — meeting still works in text mode */}
-      {state.livekitError && !state.liveKitConnected && (
+      {state.livekitError && !state.liveKitConnected && !state.liveKitReconnecting && (
         <div
           role="alert"
           className="flex items-center gap-3 px-4 py-2.5 bg-destructive/10 border-b border-destructive/30 text-sm text-foreground"

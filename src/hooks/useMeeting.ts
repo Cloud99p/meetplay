@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { RoomEvent } from 'livekit-client';
 import type { Room } from '../types/meeting';
 import type { LeaderboardEntry, RoomStateSnapshot } from '../types/games';
 import type { ChatMessage } from '../types/chat';
 import * as api from '../lib/api';
-import { connectToLiveKit } from '../lib/livekit';
+import { connectToLiveKitWithRetry, reconnectLiveKit } from '../lib/livekit';
 import { useWebSocket } from './useWebSocket';
 
 export interface MeetingState {
@@ -16,6 +17,7 @@ export interface MeetingState {
   connected: boolean;
   liveKitRoom: import('livekit-client').Room | null;
   liveKitConnected: boolean;
+  liveKitReconnecting: boolean;
   livekitError: string | null;
   messages: ChatMessage[];
   leaderboard: LeaderboardEntry[];
@@ -63,12 +65,18 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [captions, setCaptions] = useState<MeetingState['captions']>([]);
   const [livekitError, setLivekitError] = useState<string | null>(null);
   const [liveKitConnected, setLiveKitConnected] = useState(false);
+  const [liveKitReconnecting, setLiveKitReconnecting] = useState(false);
   // Quiet mode: true while ANY participant is screen-sharing (host presenting).
   // Games keep syncing state but suppress attention-drawing notifications.
   const [gameQuiet, setGameQuiet] = useState(false);
 
   const roomTokenRef = useRef<string | null>(null);
   const roomIdRef = useRef<string | null>(null);
+  // LiveKit reconnect bookkeeping: holds the last good connection params and
+  // tracks whether a reconnect is in flight (so we don't double-reconnect).
+  const lkParamsRef = useRef<{ roomName: string; identity: string; participantName: string; token: string; url: string } | null>(null);
+  const reconnectInFlightRef = useRef(false);
+  const intentionallyLeftRef = useRef(false);
 
   // Subscribe to WS events
   useEffect(() => {
@@ -214,7 +222,62 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     return () => unsubs.forEach((u) => u());
   }, [ws, participantId, liveKitRoom]);
 
+  // ---------------------------------------------------------------------
+  // LiveKit resilience: reconnect automatically after an unexpected drop.
+  // A network blip disconnects the room; instead of showing a permanent
+  // "audio/video unavailable" banner we silently retry with backoff and
+  // only surface the error if reconnection fails.
+  // ---------------------------------------------------------------------
+  useEffect(() => {
+    if (!liveKitRoom) return;
+
+    const onDisconnected = () => {
+      if (intentionallyLeftRef.current) return; // user left — no reconnect
+      const params = lkParamsRef.current;
+      if (!params || reconnectInFlightRef.current) return;
+
+      console.warn('[meeting] LiveKit disconnected — attempting reconnect…');
+      setLiveKitConnected(false);
+      setLiveKitReconnecting(true);
+      setLivekitError(null); // don't show the red banner while retrying
+      reconnectInFlightRef.current = true;
+
+      reconnectLiveKit(
+        params.roomName,
+        params.identity,
+        params.participantName,
+        params.token,
+        params.url,
+        {
+          shouldStop: () => intentionallyLeftRef.current,
+          onRetry: (attempt, delay) =>
+            console.warn(`[meeting] reconnect attempt ${attempt + 1} in ${delay}ms`),
+        },
+      ).then((result) => {
+        reconnectInFlightRef.current = false;
+        if (intentionallyLeftRef.current) return;
+        if (result && !result.error) {
+          console.log('[meeting] LiveKit reconnected');
+          setLiveKitRoom(result.room);
+          setLiveKitConnected(true);
+          setLiveKitReconnecting(false);
+          setLivekitError(null);
+        } else {
+          console.error('[meeting] LiveKit reconnect failed:', result?.error);
+          setLiveKitReconnecting(false);
+          setLivekitError(result?.error ?? 'Lost connection to the media server.');
+        }
+      });
+    };
+
+    liveKitRoom.on(RoomEvent.Disconnected, onDisconnected);
+    return () => {
+      liveKitRoom.off(RoomEvent.Disconnected, onDisconnected);
+    };
+  }, [liveKitRoom]);
+
   const createAndJoin = useCallback(async (name?: string, password?: string): Promise<string> => {
+    intentionallyLeftRef.current = false;
     const result = await api.createRoom(name, password);
     roomTokenRef.current = result.token;
     roomIdRef.current = result.room.id;
@@ -241,7 +304,14 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         result.participant.name || 'Host',
         result.token
       );
-      const { room: lkRoom, error } = await connectToLiveKit(
+      lkParamsRef.current = {
+        roomName: result.room.id,
+        identity: result.participant.id,
+        participantName: result.participant.name || 'Host',
+        token: lkToken.token,
+        url: result.livekitUrl,
+      };
+      const { room: lkRoom, error } = await connectToLiveKitWithRetry(
         result.room.id,
         result.participant.id,
         result.participant.name || 'Host',
@@ -263,6 +333,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   }, [ws]);
 
   const joinRoom = useCallback(async (roomId: string, name: string, password?: string) => {
+    intentionallyLeftRef.current = false;
     const result = await api.joinRoom(roomId, name, password);
     roomTokenRef.current = result.token;
     roomIdRef.current = result.room.id;
@@ -296,7 +367,14 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         result.participant.name,
         result.token
       );
-      const { room: lkRoom, error } = await connectToLiveKit(
+      lkParamsRef.current = {
+        roomName: result.room.id,
+        identity: result.participant.id,
+        participantName: result.participant.name,
+        token: lkToken.token,
+        url: result.livekitUrl,
+      };
+      const { room: lkRoom, error } = await connectToLiveKitWithRetry(
         result.room.id,
         result.participant.id,
         result.participant.name,
@@ -355,10 +433,13 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   }, [ws]);
 
   const leave = useCallback(() => {
+    intentionallyLeftRef.current = true;
+    reconnectInFlightRef.current = false;
     ws.disconnect();
     liveKitRoom?.disconnect();
     setLiveKitRoom(null);
     setLiveKitConnected(false);
+    setLiveKitReconnecting(false);
     setLivekitError(null);
     setRoom(null);
     setParticipants([]);
@@ -418,6 +499,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     connected: ws.connected,
     liveKitRoom,
     liveKitConnected,
+    liveKitReconnecting,
     livekitError,
     messages,
     leaderboard,
