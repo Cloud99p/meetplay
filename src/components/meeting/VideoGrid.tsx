@@ -38,12 +38,14 @@ export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
     ];
   }, [remoteParticipants, localParticipant]);
 
-  // Map participant identity -> camera track ref (if published)
+  // Map participant identity -> camera track ref (if published AND not muted)
   const trackByParticipant = useMemo(() => {
     const map = new Map<string, TrackReference>();
     for (const t of cameraTracks) {
       // Skip placeholder tracks (no actual publication yet)
       if (!t.publication) continue;
+      // Skip muted tracks (camera off) so the tile shows the avatar, not black
+      if (t.publication.isMuted) continue;
       if (!map.has(t.participant.identity)) {
         map.set(t.participant.identity, t);
       }
@@ -83,12 +85,18 @@ function VideoTile({
   trackRef?: TrackReference;
   onClick: () => void;
 }) {
+  // When the camera is off (or mid-switch) LiveKit keeps the track around
+  // but muted — render the initial avatar instead of a black frame.
+  const cameraOn = Boolean(
+    trackRef && trackRef.publication && !trackRef.publication.isMuted,
+  );
+
   return (
     <div
       onClick={onClick}
       className="relative rounded-lg overflow-hidden bg-bg-elevated border border-border cursor-pointer hover:border-primary/50 transition-colors group"
     >
-      {trackRef ? (
+      {cameraOn ? (
         <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
       ) : (
         <div className="flex items-center justify-center h-full bg-bg-elevated">

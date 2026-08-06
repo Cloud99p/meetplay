@@ -16,6 +16,8 @@ export default function SpeakerView({ activeSpeakerId, className = '' }: Props) 
     for (const t of cameraTracks) {
       // Skip placeholder tracks (no actual publication yet)
       if (!t.publication) continue;
+      // Skip muted tracks (camera off) so the tile shows the avatar, not black
+      if (t.publication.isMuted) continue;
       if (!map.has(t.participant.identity)) {
         map.set(t.participant.identity, t);
       }
