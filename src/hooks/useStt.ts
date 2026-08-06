@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { MockAdapter } from '../lib/stt/MockAdapter';
+import { createSttAdapter } from '../lib/stt';
 import type { STTAdapter } from '../lib/stt/STTAdapter';
 
 interface UseSttOptions {
@@ -15,9 +15,10 @@ interface UseSttResult {
 }
 
 /**
- * Owns the STT adapter lifecycle: starts the mock STT when transcription is
- * enabled AND the room is connected; stops it otherwise. Wires utterances to
- * the server via caption:event.
+ * Owns the STT adapter lifecycle: starts the configured STT adapter (mock,
+ * webspeech, or deepgram — see VITE_STT_MODE) when transcription is enabled
+ * AND the room is connected; stops it otherwise. Wires utterances to the
+ * server via caption:event.
  */
 export function useStt({ enabled, connected, localParticipantId, sendCaption }: UseSttOptions): UseSttResult {
   const adapterRef = useRef<STTAdapter | null>(null);
@@ -28,7 +29,7 @@ export function useStt({ enabled, connected, localParticipantId, sendCaption }: 
 
   const startAdapter = useCallback(() => {
     if (adapterRef.current) return;
-    const adapter = new MockAdapter(localParticipantId);
+    const adapter = createSttAdapter(localParticipantId);
     adapter.onUtterance = (utterance) => {
       sendCaptionRef.current(utterance.speakerId, utterance.text, utterance.isFinal);
     };

@@ -45,12 +45,35 @@ docker build -t meetplay . && docker run -p 5173:5173 meetplay
 |---|---|---|---|---|
 | **Local dev (default)** | in-memory DB | local LiveKit (Linux) or LiveKit Cloud | Mock STT | `npm run dev` |
 | **Docker compose** | Postgres | LiveKit container | Mock STT | `docker compose up` |
-| **Production (Railway/etc.)** | in-memory or Postgres | LiveKit Cloud (committed fallback keys) | Mock STT | deploy `Dockerfile` |
+| **Production (Railway/etc.)** | in-memory or Postgres | LiveKit Cloud (committed fallback keys) | Mock/WebSpeech/Deepgram | deploy `Dockerfile` |
 
-Real STT (WebSpeech API adapter exists behind the `STTAdapter` interface; Deepgram/
-AssemblyAI plug in the same way via a config toggle). **Mock STT is the default
-dev mode by design** — the prompt requires the whole app to run free and locally
-without keys, and it does.
+### Speech-to-text modes (`VITE_STT_MODE`)
+
+STT is adapter-based behind a single `STTAdapter` contract — every adapter emits
+`{ speakerId, text, isFinal, timestamp }`, so the games engine and captions
+overlay work identically in every mode. Select the backend at build time with an
+env var (see `.env.example`):
+
+| Mode | Adapter | Diarization | Needs key | Use when |
+|---|---|---|---|---|
+| `mock` (default) | `MockAdapter` | ✅ synthetic | ❌ | Buildathon/demo, zero-config local dev |
+| `webspeech` | `WebSpeechAdapter` | ❌ (single `local` speaker) | ❌ | Free browser-native STT — captions only; "Who Said That?" degrades (no speakers) |
+| `deepgram` | `DeepgramAdapter` | ✅ real (per-word speaker) | `VITE_DEEPGRAM_API_KEY` | **Production** — streaming + diarized, powers all 3 games correctly |
+
+```bash
+# Production: real diarized STT
+VITE_STT_MODE=deepgram VITE_DEEPGRAM_API_KEY=dg_... npm run build
+
+# Or free browser STT (no diarization)
+VITE_STT_MODE=webspeech npm run dev
+
+# Or zero-config demo (default)
+npm run dev
+```
+
+If `deepgram` is selected without a key, the app falls back to `mock` so demos
+never break. **Mock STT is the default dev mode by design** — the whole app runs
+free and locally without keys.
 
 ---
 
