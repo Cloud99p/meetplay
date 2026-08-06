@@ -283,7 +283,9 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
         roundData: gr.round_data,
         startedAt: gr.started_at,
         endedAt: gr.ended_at,
+        state: gr.state,
         submissions: submissions.map((s) => ({
+          participantId: s.participant_id,
           participantName: s.participant_name,
           submission: s.submission,
           score: s.score,
@@ -296,7 +298,7 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
   const ended = room.ended_at ? new Date(room.ended_at).getTime() : Date.now();
   const durationSec = Math.floor((ended - started) / 1000);
 
-  return {
+  const recapBase = {
     room: {
       id: room.id,
       name: room.name,
@@ -318,4 +320,63 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
     })),
     gameRounds: gameRoundsWithSubs,
   };
+
+  // Attach leaderboard + key quotes computed from rounds
+  return withSummary(recapBase as any);
+}
+
+/**
+ * Compute leaderboard (pointsPerRound primary, total tiebreak) and key quotes
+ * (Who Said That quotes ranked by correct-guess count).
+ */
+function withSummary(recap: any) {
+  // ---- Leaderboard ----
+  const totals = new Map<string, { total: number; roundsPlayed: number; name: string }>();
+  for (const p of recap.participants as Array<{ id: string; name: string }>) {
+    totals.set(p.id, { total: 0, roundsPlayed: 0, name: p.name });
+  }
+  for (const round of recap.gameRounds) {
+    for (const s of round.submissions ?? []) {
+      const pid = s.participantId ?? s.participant_id;
+      const entry = totals.get(pid);
+      if (!entry) continue;
+      entry.total += s.score ?? 0;
+      if (round.state === 'scored' || round.state === 'locked') {
+        entry.roundsPlayed++;
+      }
+    }
+  }
+  const leaderboard = Array.from(totals.entries())
+    .filter(([_, v]) => v.roundsPlayed > 0)
+    .map(([id, v]) => ({
+      participantId: id,
+      participantName: v.name,
+      score: v.total,
+      pointsPerRound: v.roundsPlayed > 0 ? Math.round((v.total / v.roundsPlayed) * 100) / 100 : 0,
+      roundsPlayed: v.roundsPlayed,
+    }))
+    .sort((a, b) => {
+      const ppr = b.pointsPerRound - a.pointsPerRound;
+      return ppr !== 0 ? ppr : b.score - a.score;
+    });
+
+  // ---- Key quotes ----
+  const keyQuotes: Array<{ quote: string; speakerName: string; correctGuesses: number; totalGuesses: number }> = [];
+  for (const round of recap.gameRounds) {
+    if (round.gameType !== 'who_said_that') continue;
+    const rd = round.roundData as { quote?: string; speakerId?: string } | null;
+    if (!rd?.quote) continue;
+    const speaker = recap.participants.find((p: any) => p.id === rd.speakerId);
+    const subs = (round.submissions ?? []) as Array<{ submission?: { answer?: string } }>;
+    const correctGuesses = subs.filter((s) => s.submission?.answer === rd.speakerId).length;
+    keyQuotes.push({
+      quote: rd.quote,
+      speakerName: speaker?.name ?? 'Unknown',
+      correctGuesses,
+      totalGuesses: subs.length,
+    });
+  }
+  keyQuotes.sort((a, b) => b.correctGuesses - a.correctGuesses);
+
+  return { ...recap, leaderboard, keyQuotes };
 }

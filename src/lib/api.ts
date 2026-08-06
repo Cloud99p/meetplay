@@ -53,10 +53,24 @@ export interface RecapData {
     startedAt: string;
     endedAt: string | null;
     submissions: Array<{
+      participantId?: string;
       participantName: string;
       submission: unknown;
       score: number;
     }>;
+  }>;
+  leaderboard?: Array<{
+    participantId: string;
+    participantName: string;
+    score: number;
+    pointsPerRound: number;
+    roundsPlayed: number;
+  }>;
+  keyQuotes?: Array<{
+    quote: string;
+    speakerName: string;
+    correctGuesses: number;
+    totalGuesses: number;
   }>;
 }
 
