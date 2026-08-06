@@ -1,4 +1,4 @@
-import type { GameType, RoundState } from '../../types/games';
+import type { GameType, RoundState, LeaderboardEntry } from '../../types/games';
 
 export interface RoundInfo {
   roundId: string;
@@ -10,12 +10,41 @@ export interface RoundInfo {
 }
 
 /**
- * Client-side game utilities.
+ * Client-side game utilities — pure functions only, no I/O, no React.
+ * Mirrors server/src/games/engine.ts scoring/state logic (optimistic preview;
+ * the server remains authoritative).
  */
 
-export function getRoundTimeRemaining(startedAt: string, timeLimit: number): number {
+/** Transition a round state, returning the new state with timestamp. */
+export function transitionState(
+  _current: RoundState,
+  next: RoundState,
+  now: number = Date.now()
+): { state: RoundState; timestamp: number } {
+  return { state: next, timestamp: now };
+}
+
+/** Seconds remaining in a round. */
+export function roundTimeLeft(startedAt: string, timeLimitSec: number): number {
   const elapsed = (Date.now() - new Date(startedAt).getTime()) / 1000;
-  return Math.max(0, timeLimit - elapsed);
+  return Math.max(0, timeLimitSec - elapsed);
+}
+
+/** Backwards-compatible alias used by game components. */
+export function getRoundTimeRemaining(startedAt: string, timeLimit: number): number {
+  return roundTimeLeft(startedAt, timeLimit);
+}
+
+/** Sort leaderboard by pointsPerRound (or total score), descending. */
+export function sortLeaderboard(
+  entries: LeaderboardEntry[],
+  byPointsPerRound = true
+): LeaderboardEntry[] {
+  return [...entries].sort((a, b) => {
+    const av = byPointsPerRound ? a.pointsPerRound : a.score;
+    const bv = byPointsPerRound ? b.pointsPerRound : b.score;
+    return bv - av;
+  });
 }
 
 export function formatTime(seconds: number): string {
