@@ -1,4 +1,12 @@
-import { Room, RoomEvent, type RemoteParticipant, type RoomConnectOptions } from 'livekit-client';
+import {
+  Room,
+  RoomEvent,
+  VideoPresets,
+  supportsAV1,
+  supportsVP9,
+  type RemoteParticipant,
+  type RoomConnectOptions,
+} from 'livekit-client';
 
 export interface LiveKitConnection {
   room: Room;
@@ -26,6 +34,54 @@ const CONNECT_OPTIONS: RoomConnectOptions = {
   websocketTimeout: CONNECT_TIMEOUT_MS,
   peerConnectionTimeout: CONNECT_TIMEOUT_MS,
 };
+
+/**
+ * Video quality profile.
+ *
+ * Previous setup: default codec (VP8) + 720p capture + stock bitrates —
+ * noticeably soft/blurry, especially in low light or when tiles are large.
+ *
+ * New profile:
+ *  - Capture at 1080p (top simulcast/SVC layer).
+ *  - VP9 codec: roughly 50% better quality-per-bit than VP8 (SVC spatial
+ *    layers, dynacast still pauses unneeded layers).
+ *  - VP8 as backup codec so older browsers can still subscribe.
+ *  - maintain-resolution: when bandwidth dips, keep detail and drop frames
+ *    instead of smearing the picture (camera default is maintain-framerate).
+ */
+const VIDEO_CAPTURE_RESOLUTION = { width: 1920, height: 1080 };
+
+/**
+ * Pick the best codec this browser can actually publish:
+ *  AV1 (best quality-per-bit, modern Chrome/Edge) -> VP9 (broad + SVC) -> VP8 (fallback).
+ * Mirrors the SDK's own recommendation; supportsAV1/supportsVP9 already exclude
+ * Safari/Firefox cases where SVC publishing is broken.
+ */
+function pickVideoCodec(): 'av1' | 'vp9' | 'vp8' {
+  if (supportsAV1()) return 'av1';
+  if (supportsVP9()) return 'vp9';
+  return 'vp8';
+}
+
+function createRoom(): Room {
+  return new Room({
+    adaptiveStream: true,
+    dynacast: true,
+    videoCaptureDefaults: { resolution: VIDEO_CAPTURE_RESOLUTION },
+    publishDefaults: {
+      videoCodec: pickVideoCodec(),
+      backupCodec: { codec: 'vp8' },
+      // Lower layers used with the VP8 fallback (VP9/AV1 SVC derive their own
+      // spatial layers, so this is ignored there). h540 gives the mid layer
+      // a real quality step instead of jumping 360p -> full res.
+      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360, VideoPresets.h540],
+      degradationPreference: 'maintain-resolution',
+      // Screen share: default is 1080p @ 3 Mbps; bump to 4 Mbps so text and
+      // slides stay crisp when presenting.
+      screenShareEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
+    },
+  });
+}
 
 const KNOWN_CONNECT_ERRORS: Array<{ pattern: string; friendly: string; retryable: boolean }> = [
   {
@@ -165,22 +221,14 @@ export async function connectToLiveKit(
   // instead of waiting for the SDK's WebSocket timeout (8 s).
   const reachable = await probeLiveKit(livekitUrl);
   if (!reachable) {
-    const room = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-      videoCaptureDefaults: { resolution: { width: 1280, height: 720 } },
-    });
+    const room = createRoom();
     return {
       room,
       error: 'The media server is not running or unreachable.',
     };
   }
 
-  const room = new Room({
-    adaptiveStream: true,
-    dynacast: true,
-    videoCaptureDefaults: { resolution: { width: 1280, height: 720 } },
-  });
+  const room = createRoom();
 
   try {
     // identity and name are embedded in the LiveKit JWT by the server.

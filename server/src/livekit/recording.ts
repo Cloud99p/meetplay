@@ -2,6 +2,7 @@ import {
   EgressClient,
   EncodedFileType,
   EncodedFileOutput,
+  EncodingOptionsPreset,
 } from 'livekit-server-sdk';
 import { loadConfig } from '../config.js';
 
@@ -52,7 +53,10 @@ export async function startRecording(
   }
   try {
     const output = new EncodedFileOutput({ fileType: EncodedFileType.MP4 });
-    const info = await client.startRoomCompositeEgress(roomName, output, {});
+    // Record at 1080p/30 (H.264, 4.5 Mbps) instead of the egress default 720p.
+    const info = await client.startRoomCompositeEgress(roomName, output, {
+      encodingOptions: EncodingOptionsPreset.H264_1080P_30,
+    });
     recordings.set(roomName, { egressId: info.egressId, startedAt: Date.now() });
     return { ok: true, startedAt: Date.now() };
   } catch (e) {
