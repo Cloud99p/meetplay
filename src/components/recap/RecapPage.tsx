@@ -100,8 +100,12 @@ export default function RecapPage({ roomId, onBack }: Props) {
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8 print:max-w-none print:px-0 print:py-0">
         {/* Header */}
         <div className="flex items-center gap-3 print:hidden">
-          <button onClick={onBack} className="p-2 rounded-lg hover:bg-bg-elevated text-muted hover:text-foreground transition-colors cursor-pointer">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 p-2 rounded-lg hover:bg-bg-elevated text-muted hover:text-foreground transition-colors cursor-pointer"
+          >
             <FiChevronLeft className="w-5 h-5" />
+            <span className="text-xs font-medium">Lobby</span>
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-heading font-bold text-foreground">Meeting Recap</h1>
@@ -345,6 +349,17 @@ export default function RecapPage({ roomId, onBack }: Props) {
             </div>
           </section>
         )}
+
+        {/* Done — back to lobby */}
+        <div className="pt-4 pb-8 print:hidden">
+          <button
+            onClick={onBack}
+            className="w-full py-3.5 bg-primary hover:bg-primary-hover text-on-primary font-heading font-semibold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 text-sm"
+          >
+            <FiChevronLeft className="w-4 h-4" />
+            Back to lobby — start another meeting
+          </button>
+        </div>
       </div>
     </div>
   );

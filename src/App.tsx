@@ -47,6 +47,14 @@ function AppRoutes() {
     navigate('/');
   };
 
+  // Leaving the recap for the lobby must also clear the ended-room state,
+  // otherwise the "room ended -> recap" effect above re-fires on the next
+  // render and bounces the user straight back to the recap.
+  const handleRecapBack = () => {
+    actions.leave();
+    navigate('/');
+  };
+
   return (
     <Routes>
       <Route
@@ -63,7 +71,7 @@ function AppRoutes() {
       />
       <Route
         path="/recap/:roomId"
-        element={<RecapPageWrapper onBack={() => navigate('/')} />}
+        element={<RecapPageWrapper onBack={handleRecapBack} />}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
