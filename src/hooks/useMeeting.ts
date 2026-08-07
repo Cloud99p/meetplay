@@ -799,13 +799,18 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   }, [ws]);
 
   const toggleTranscription = useCallback(async (enabled: boolean) => {
+    // Optimistic flip — UI responds instantly; server broadcast confirms
+    // for everyone (and corrects us if the request fails).
+    setTranscriptionEnabled(enabled);
     const token = api.getRoomToken();
     if (!token || !room) return;
     try {
       await api.toggleTranscription(room.id, enabled, token);
-      // Server broadcasts transcript:toggled which updates state
+      // Server broadcasts transcript:toggled which also updates state
     } catch (e) {
       console.error('[meeting] toggle transcription error:', e);
+      // Revert on failure so UI matches reality
+      setTranscriptionEnabled(!enabled);
     }
   }, [room]);
 

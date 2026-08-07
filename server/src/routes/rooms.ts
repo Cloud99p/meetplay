@@ -16,6 +16,7 @@ import { mintJoinToken } from '../livekit/token.js';
 import { probeLiveKit } from './livekit.js';
 import { loadConfig } from '../config.js';
 import { endMeetingRoom } from '../endMeeting.js';
+import { channelManager } from '../ws/channels.js';
 
 const MAX_PARTICIPANTS = 50;
 const cfg = loadConfig();
@@ -241,6 +242,13 @@ export async function roomsRoutes(app: FastifyInstance) {
 
     const enabled = Boolean(body.enabled);
     await updateRoom(id, { transcription_enabled: enabled });
+    // Broadcast to every connected client so their UI + STT state flips
+    // immediately (client also optimistically updates, but this is the
+    // authoritative sync for all participants).
+    channelManager.broadcast(id, {
+      type: 'transcript:toggled',
+      payload: { enabled },
+    });
     return reply.send({ enabled });
   });
 
