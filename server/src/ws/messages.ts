@@ -15,6 +15,10 @@ export const GameSubmitPayload = z.object({
   roundId: z.string().uuid(),
   answer: z.unknown(),
 });
+export const UserMarketCreatePayload = z.object({
+  word: z.string().min(1).max(30),
+  guess: z.number().int().min(0).max(9999),
+});
 export const ParticipantMutePayload = z.object({
   targetId: z.string().uuid(),
   muted: z.boolean().optional(),
@@ -36,6 +40,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hand:lower'), payload: HandLowerPayload }),
   z.object({ type: z.literal('caption:event'), payload: CaptionEventPayload }),
   z.object({ type: z.literal('game:submit'), payload: GameSubmitPayload }),
+  z.object({ type: z.literal('game:userMarket:create'), payload: UserMarketCreatePayload }),
   z.object({ type: z.literal('participant:mute'), payload: ParticipantMutePayload }),
   z.object({ type: z.literal('participant:camera'), payload: ParticipantCameraPayload }),
   z.object({ type: z.literal('participant:remove'), payload: ParticipantRemovePayload }),
@@ -66,6 +71,11 @@ export type ServerMessage =
   | { type: 'game:flash:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number>; remainingMs: number } }
   | { type: 'game:flash:bet'; payload: { roundId: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number } }
   | { type: 'game:flash:resolved'; payload: { roundId: string; targetWord: string; windowMs: number; actualCount: number; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
+  | { type: 'game:userMarket:open'; payload: { roundId: string; targetWord: string; createdBy: string; createdByName: string; startedAt: string } }
+  | { type: 'game:userMarket:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number> } }
+  | { type: 'game:userMarket:bet'; payload: { roundId: string; targetWord: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number } }
+  | { type: 'game:userMarket:resolved'; payload: { roundId: string; targetWord: string; actualCount: number; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
+  | { type: 'game:userMarket:error'; payload: { message: string } }
   | { type: 'bingo:open'; payload: { roundId: string; roundNumber: number } }
   | { type: 'bingo:mark'; payload: { roundId: string; indices: number[] } }
   | { type: 'bingo:win'; payload: { roundId: string; roundNumber: number; participantId: string; participantName: string; lineType: string } }
@@ -125,6 +135,19 @@ export interface FlashSnapshot {
   actualCount?: number;
 }
 
+export interface UserMarketSnapshot {
+  roundId: string;
+  targetWord: string;
+  createdBy: string;
+  createdByName: string;
+  startedAt: string;
+  liveCount: number;
+  odds: Record<string, number>;
+  myBet: { guess: number; lockedOdds: number } | null;
+  resolved: boolean;
+  actualCount?: number;
+}
+
 export interface RoomStateSnapshot {
   participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
   transcriptionEnabled: boolean;
@@ -141,6 +164,7 @@ export interface RoomStateSnapshot {
   leaderboard: LeaderboardEntry[];
   market: MarketSnapshot | null;
   flash: FlashSnapshot | null;
+  userMarkets: UserMarketSnapshot[];
   bingo: BingoSapshot | null;
   stats: SpeakerStatRow[];
 }

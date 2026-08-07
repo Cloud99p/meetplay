@@ -133,6 +133,24 @@ if (marketUpdate) {
   console.log('market bet: SKIPPED (no market update)');
 }
 
+// ── Member-created word market: guest opens one, host bets on it ──
+guest.ws.send(JSON.stringify({ type: 'game:userMarket:create', payload: { word: 'synergy', guess: 6 } }));
+await new Promise((r) => setTimeout(r, 800));
+const umOpen = host.events.find((e) => e.type === 'game:userMarket:open');
+console.log('member market open:', umOpen ? `${umOpen.payload.targetWord} by ${umOpen.payload.createdByName}` : 'NONE');
+if (umOpen) {
+  host.ws.send(JSON.stringify({ type: 'game:submit', payload: { roundId: umOpen.payload.roundId, answer: { guess: 9 } } }));
+  await new Promise((r) => setTimeout(r, 800));
+  const umBet = host.events.find((e) => e.type === 'game:userMarket:bet');
+  console.log('member market bet:', umBet ? `${umBet.payload.participantName} guessed ${umBet.payload.guess} @ x${umBet.payload.lockedOdds}` : 'NONE');
+  const umUpd = host.events.find((e) => e.type === 'game:userMarket:update');
+  console.log('member market update:', umUpd ? `count=${umUpd.payload.liveCount}` : 'NONE');
+} else {
+  // Try to see if an error came back
+  const umErr = guest.events.find((e) => e.type === 'game:userMarket:error');
+  console.log('member market error:', umErr ? umErr.payload.message : 'NONE');
+}
+
 // End the meeting (host) -> market resolves
 host.ws.send(JSON.stringify({ type: 'room:end', payload: {} }));
 await new Promise((r) => setTimeout(r, 1500));
@@ -145,6 +163,8 @@ const wcbRound = quiz.gameRounds?.find((r) => r.gameType === 'word_count_bet');
 console.log('wcb round in recap:', wcbRound ? `actualCount=${wcbRound.roundData.actualCount}` : 'NONE');
 const flashRound = quiz.gameRounds?.find((r) => r.gameType === 'flash_wcb');
 console.log('flash round in recap:', flashRound ? `${flashRound.roundData.targetWord} actualCount=${flashRound.roundData.actualCount}` : 'NONE');
+const umRound = quiz.gameRounds?.find((r) => r.gameType === 'user_word_bet');
+console.log('member market round in recap:', umRound ? `${umRound.roundData.targetWord} actualCount=${umRound.roundData.actualCount} by ${umRound.roundData.createdBy}` : 'NONE');
 
 host.ws.close(); guest.ws.close();
 console.log('SMOKE DONE');

@@ -25,6 +25,8 @@ export interface MeetingState {
   activeRound: RoomStateSnapshot['activeRound'];
   market: RoomStateSnapshot['market'];
   flash: RoomStateSnapshot['flash'];
+  userMarkets: RoomStateSnapshot['userMarkets'];
+  userMarketError: string | null;
   bingo: RoomStateSnapshot['bingo'];
   stats: RoomStateSnapshot['stats'];
   livekitUrl: string;
@@ -61,6 +63,8 @@ export interface MeetingActions {
   submitAnswer: (roundId: string, answer: unknown) => void;
   placeMarketBet: (guess: number) => void;
   placeFlashBet: (roundId: string, guess: number) => void;
+  createUserMarket: (word: string, guess: number) => void;
+  placeUserMarketBet: (roundId: string, guess: number) => void;
 }
 
 export function useMeeting(): [MeetingState, MeetingActions] {
@@ -77,6 +81,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [activeRound, setActiveRound] = useState<RoomStateSnapshot['activeRound']>(null);
   const [market, setMarket] = useState<RoomStateSnapshot['market']>(null);
   const [flash, setFlash] = useState<RoomStateSnapshot['flash']>(null);
+  const [userMarkets, setUserMarkets] = useState<RoomStateSnapshot['userMarkets']>([]);
+  const [userMarketError, setUserMarketError] = useState<string | null>(null);
   const [bingo, setBingo] = useState<RoomStateSnapshot['bingo']>(null);
   const [stats, setStats] = useState<RoomStateSnapshot['stats']>([]);
   const [livekitUrl, setLivekitUrl] = useState('ws://localhost:7880');
@@ -111,6 +117,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         setLeaderboard(payload.leaderboard);
         setMarket(payload.market);
         setFlash(payload.flash);
+        setUserMarkets(payload.userMarkets ?? []);
         setBingo(payload.bingo);
         setStats(payload.stats ?? []);
         setRecording(Boolean(payload.recording));
@@ -389,6 +396,69 @@ export function useMeeting(): [MeetingState, MeetingActions] {
             ? { ...prev, resolved: true, actualCount: payload.actualCount, liveCount: payload.actualCount }
             : prev
         );
+      })
+    );
+
+    // ── Member-created word markets (community) ──
+    unsubs.push(
+      ws.on('game:userMarket:open', (payload: { roundId: string; targetWord: string; createdBy: string; createdByName: string; startedAt: string }) => {
+        setUserMarkets((prev) => {
+          if (prev.some((m) => m.targetWord === payload.targetWord)) return prev;
+          return [
+            ...prev,
+            {
+              roundId: payload.roundId,
+              targetWord: payload.targetWord,
+              createdBy: payload.createdBy,
+              createdByName: payload.createdByName,
+              startedAt: payload.startedAt,
+              liveCount: 0,
+              odds: {},
+              myBet: null,
+              resolved: false,
+            },
+          ];
+        });
+        setUserMarketError(null);
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:userMarket:update', (payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number> }) => {
+        setUserMarkets((prev) =>
+          prev.map((m) => (m.roundId === payload.roundId ? { ...m, liveCount: payload.liveCount, odds: payload.odds } : m))
+        );
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:userMarket:bet', (payload: { roundId: string; targetWord: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number }) => {
+        setUserMarkets((prev) =>
+          prev.map((m) => {
+            if (m.roundId !== payload.roundId) return m;
+            const myBet =
+              payload.participantId === participantId
+                ? { guess: payload.guess, lockedOdds: payload.lockedOdds }
+                : m.myBet;
+            return { ...m, myBet, liveCount: payload.liveCount };
+          })
+        );
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:userMarket:resolved', (payload: { roundId: string; targetWord: string; actualCount: number; results: any[]; leaderboard: LeaderboardEntry[] }) => {
+        setLeaderboard(payload.leaderboard);
+        setUserMarkets((prev) =>
+          prev.map((m) => (m.roundId === payload.roundId ? { ...m, resolved: true, actualCount: payload.actualCount, liveCount: payload.actualCount } : m))
+        );
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:userMarket:error', (payload: { message: string }) => {
+        setUserMarketError(payload.message);
+        setTimeout(() => setUserMarketError(null), 5000);
       })
     );
 
@@ -872,6 +942,21 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.send('game:submit', { roundId, answer: { guess } });
   }, [ws]);
 
+  const createUserMarket = useCallback((word: string, guess: number) => {
+    ws.send('game:userMarket:create', { word, guess });
+  }, [ws]);
+
+  const placeUserMarketBet = useCallback((roundId: string, guess: number) => {
+    setUserMarkets((prev) =>
+      prev.map((m) =>
+        m.roundId === roundId && !m.resolved && !m.myBet
+          ? { ...m, myBet: { guess, lockedOdds: 1 } }
+          : m
+      )
+    );
+    ws.send('game:submit', { roundId, answer: { guess } });
+  }, [ws]);
+
   const state: MeetingState = {
     room,
     participants,
@@ -889,6 +974,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     activeRound,
     market,
     flash,
+    userMarkets,
+    userMarketError,
     bingo,
     stats,
     livekitUrl,
@@ -920,6 +1007,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       submitAnswer,
       placeMarketBet,
       placeFlashBet,
+      createUserMarket,
+      placeUserMarketBet,
     }),
     [
       createAndJoin,
@@ -941,6 +1030,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       submitAnswer,
       placeMarketBet,
       placeFlashBet,
+      createUserMarket,
+      placeUserMarketBet,
     ]
   );
 

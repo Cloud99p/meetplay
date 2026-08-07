@@ -6,6 +6,7 @@ import WhoSaidThat from './WhoSaidThat';
 import MeetingScrabble from './MeetingScrabble';
 import WordCountMarket from './WordCountMarket';
 import FlashBet from './FlashBet';
+import UserMarkets from './UserMarkets';
 import BingoCard from './BingoCard';
 import StatsPanel from './StatsPanel';
 
@@ -20,10 +21,14 @@ interface Props {
   /** Always-on games (Layer A) */
   market: RoomStateSnapshot['market'];
   flash: RoomStateSnapshot['flash'];
+  userMarkets: RoomStateSnapshot['userMarkets'];
+  userMarketError: string | null;
   bingo: RoomStateSnapshot['bingo'];
   stats: RoomStateSnapshot['stats'];
   onMarketBet: (guess: number) => void;
   onFlashBet: (guess: number) => void;
+  onCreateUserMarket: (word: string, guess: number) => void;
+  onUserMarketBet: (roundId: string, guess: number) => void;
 }
 
 type Tab = 'game' | 'board' | 'stats';
@@ -37,10 +42,14 @@ export default function GamesPanel({
   quiet,
   market,
   flash,
+  userMarkets,
+  userMarketError,
   bingo,
   stats,
   onMarketBet,
   onFlashBet,
+  onCreateUserMarket,
+  onUserMarketBet,
 }: Props) {
   const [tab, setTab] = useState<Tab>('game');
 
@@ -89,6 +98,15 @@ export default function GamesPanel({
             {market && (
               <WordCountMarket market={market} onBet={onMarketBet} quiet={quiet} />
             )}
+            {/* Member-created word bets */}
+            <UserMarkets
+              markets={userMarkets}
+              myParticipantId={participantId}
+              error={userMarketError}
+              onCreate={onCreateUserMarket}
+              onBet={onUserMarketBet}
+              quiet={quiet}
+            />
             {/* Always-on bingo (Layer A) */}
             {bingo && (
               <BingoCard bingo={bingo} participantId={participantId} quiet={quiet} />

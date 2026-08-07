@@ -109,9 +109,13 @@ export class RoomGameEngine {
   bingo: BingoState | null = null;
   flash: FlashState | null = null;
   speakerStats: Map<string, SpeakerStats> = new Map();
+  // Member-created word bets (community markets) — keyed by lowercase word
+  userMarkets: Map<string, { state: MarketState; createdBy: string; createdByName: string }> = new Map();
   private statsDirty = false;
   private statsTimer: NodeJS.Timeout | null = null;
   private nameById: Map<string, string> = new Map();
+
+  private static MAX_USER_MARKETS = 5;
 
   constructor(roomId: string) {
     this.roomId = roomId;
@@ -183,6 +187,16 @@ export class RoomGameEngine {
       if (hits > 0) {
         this.flash.liveCount += hits;
         this.broadcastFlashUpdate(true /* throttled */);
+      }
+    }
+
+    // ── Layer A: member-created word markets ──
+    for (const um of this.userMarkets.values()) {
+      if (um.state.resolved) continue;
+      const hits = countWordInText(um.state.targetWord, utterance.text);
+      if (hits > 0) {
+        um.state.liveCount += hits;
+        this.broadcastUserMarketUpdate(um.state.targetWord, true /* throttled */);
       }
     }
 
@@ -591,6 +605,231 @@ export class RoomGameEngine {
   }
 
   // ──────────────────────────────────────────────────────────────
+  // Member-created word bets (Layer A) — community markets
+  // ──────────────────────────────────────────────────────────────
+
+  /**
+   * A member opens a market on a word with their own guess. Anyone can then
+   * bet on it. Validation is strict to keep the board clean.
+   * Returns an error string, or null on success.
+   */
+  async createUserMarket(
+    participantId: string,
+    participantName: string,
+    rawWord: unknown,
+    rawGuess: unknown
+  ): Promise<string | null> {
+    const word = String(rawWord ?? '').toLowerCase().trim();
+    const guess = Number(rawGuess);
+    if (!/^[a-z][a-z0-9'-]{1,19}$/.test(word)) {
+      return 'Word must be 2–20 letters (letters, numbers, hyphens).';
+    }
+    if (!Number.isFinite(guess) || guess < 0 || guess > 9999) {
+      return 'Guess must be a number between 0 and 9999.';
+    }
+    if (this.market?.targetWord === word) {
+      return `"${word}" is already the main market word.`;
+    }
+    if (this.userMarkets.has(word)) {
+      return `"${word}" already has a market — bet on it instead.`;
+    }
+    if (this.userMarkets.size >= RoomGameEngine.MAX_USER_MARKETS) {
+      return `Max ${RoomGameEngine.MAX_USER_MARKETS} member markets reached.`;
+    }
+    try {
+      const roundRecord = await db.createGameRound({
+        roomId: this.roomId,
+        gameType: 'user_word_bet',
+        roundData: { targetWord: word, initialCount: 0, createdBy: participantName },
+      });
+      const state: MarketState = {
+        roundId: roundRecord.id,
+        targetWord: word,
+        startedAt: Date.now(),
+        liveCount: 0,
+        bets: new Map(),
+        resolved: false,
+        lastBroadcast: 0,
+      };
+      this.userMarkets.set(word, { state, createdBy: participantId, createdByName: participantName });
+      channelManager.broadcast(this.roomId, {
+        type: 'game:userMarket:open',
+        payload: {
+          roundId: roundRecord.id,
+          targetWord: word,
+          createdBy: participantId,
+          createdByName: participantName,
+          startedAt: new Date(state.startedAt).toISOString(),
+        },
+      });
+      // Creator's own guess is auto-placed as their bet
+      await this.submitUserMarketBet(word, participantId, participantName, { guess });
+      console.log(`[engine:${this.roomId}] Member market opened on "${word}" by ${participantName}`);
+      return null;
+    } catch (e) {
+      console.error(`[engine:${this.roomId}] createUserMarket error:`, e);
+      return 'Could not create market — try again.';
+    }
+  }
+
+  /** Place/update a bet on a member market. */
+  async submitUserMarketBet(
+    wordOrRoundId: string,
+    participantId: string,
+    participantName: string,
+    answer: unknown
+  ): Promise<void> {
+    // Look up by word or by round id
+    let entry = this.userMarkets.get(wordOrRoundId);
+    if (!entry) {
+      entry = Array.from(this.userMarkets.values()).find((u) => u.state.roundId === wordOrRoundId);
+    }
+    if (!entry || entry.state.resolved) return;
+    const m = entry.state;
+    const raw = (answer as { guess?: unknown } | null)?.guess ?? answer;
+    const g = Number(raw);
+    if (!Number.isFinite(g) || g < 0 || g > 9999) return;
+
+    const currentOdds = computeGuessOdds(Array.from(m.bets.values()), m.liveCount);
+    const lockedOdds = currentOdds[String(g)] ?? 1.01;
+    m.bets.set(participantId, {
+      participantId,
+      guess: g,
+      lockedOdds,
+      submittedAt: Date.now(),
+    });
+    try {
+      await db.saveGameSubmission({
+        roundId: m.roundId,
+        participantId,
+        submission: { guess: g, lockedOdds },
+        score: 0,
+      });
+    } catch (e) {
+      console.error(`[engine:${this.roomId}] user market bet save error:`, e);
+    }
+    channelManager.broadcast(this.roomId, {
+      type: 'game:userMarket:bet',
+      payload: {
+        roundId: m.roundId,
+        targetWord: m.targetWord,
+        participantId,
+        participantName,
+        guess: g,
+        lockedOdds,
+        liveCount: m.liveCount,
+      },
+    });
+    this.broadcastUserMarketUpdate(m.targetWord, false);
+  }
+
+  /** Broadcast live count + odds for one member market (throttled). */
+  private broadcastUserMarketUpdate(word: string, throttled: boolean): void {
+    const entry = this.userMarkets.get(word);
+    if (!entry || entry.state.resolved) return;
+    const m = entry.state;
+    const now = Date.now();
+    if (throttled && now - m.lastBroadcast < MARKET_UPDATE_THROTTLE_MS) return;
+    m.lastBroadcast = now;
+    const odds = computeGuessOdds(Array.from(m.bets.values()), m.liveCount);
+    channelManager.broadcast(this.roomId, {
+      type: 'game:userMarket:update',
+      payload: {
+        roundId: m.roundId,
+        targetWord: m.targetWord,
+        liveCount: m.liveCount,
+        odds,
+      },
+    });
+  }
+
+  /** Resolve all member markets at meeting end. Idempotent. */
+  async resolveUserMarkets(): Promise<void> {
+    for (const entry of this.userMarkets.values()) {
+      const m = entry.state;
+      if (m.resolved) continue;
+      m.resolved = true;
+      const actualCount = m.liveCount;
+      await db.updateGameRound(m.roundId, {
+        state: 'scored',
+        ended_at: new Date().toISOString(),
+        round_data: { targetWord: m.targetWord, initialCount: 0, actualCount, createdBy: entry.createdByName },
+      });
+      const results: Array<{ participantId: string; participantName: string; submission: unknown; score: number }> = [];
+      for (const bet of m.bets.values()) {
+        const score = Math.round(calculateBetScore(bet.guess, actualCount) * oddsMultiplier(bet.lockedOdds));
+        await db.saveGameSubmission({
+          roundId: m.roundId,
+          participantId: bet.participantId,
+          submission: { guess: bet.guess, lockedOdds: bet.lockedOdds },
+          score,
+        });
+        results.push({
+          participantId: bet.participantId,
+          participantName: this.nameById.get(bet.participantId) ?? 'Unknown',
+          submission: { guess: bet.guess },
+          score,
+        });
+      }
+      const leaderboard = await this.buildLeaderboard();
+      channelManager.broadcast(this.roomId, {
+        type: 'game:userMarket:resolved',
+        payload: {
+          roundId: m.roundId,
+          targetWord: m.targetWord,
+          actualCount,
+          results,
+          leaderboard,
+        },
+      });
+      console.log(`[engine:${this.roomId}] Member market resolved: "${m.targetWord}" = ${actualCount}`);
+    }
+  }
+
+  getUserMarketsSnapshot(participantId: string): Array<{
+    roundId: string;
+    targetWord: string;
+    createdBy: string;
+    createdByName: string;
+    startedAt: string;
+    liveCount: number;
+    odds: Record<string, number>;
+    myBet: { guess: number; lockedOdds: number } | null;
+    resolved: boolean;
+    actualCount?: number;
+  }> {
+    const out: Array<{
+      roundId: string;
+      targetWord: string;
+      createdBy: string;
+      createdByName: string;
+      startedAt: string;
+      liveCount: number;
+      odds: Record<string, number>;
+      myBet: { guess: number; lockedOdds: number } | null;
+      resolved: boolean;
+      actualCount?: number;
+    }> = [];
+    for (const entry of this.userMarkets.values()) {
+      const m = entry.state;
+      const bet = m.bets.get(participantId);
+      out.push({
+        roundId: m.roundId,
+        targetWord: m.targetWord,
+        createdBy: entry.createdBy,
+        createdByName: entry.createdByName,
+        startedAt: new Date(m.startedAt).toISOString(),
+        liveCount: m.liveCount,
+        odds: computeGuessOdds(Array.from(m.bets.values()), m.liveCount),
+        myBet: bet ? { guess: bet.guess, lockedOdds: bet.lockedOdds } : null,
+        resolved: m.resolved,
+        actualCount: m.resolved ? m.liveCount : undefined,
+      });
+    }
+    return out;
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Buzzword Bingo (Layer A)
   // ──────────────────────────────────────────────────────────────
 
@@ -850,6 +1089,11 @@ export class RoomGameEngine {
     // Route to the flash WCB if this roundId is the live flash window
     if (this.flash && !this.flash.resolved && this.flash.roundId === roundId) {
       return this.submitFlashBet(roundId, participantId, participantName, answer);
+    }
+    // Route to a member-created market if this roundId matches one
+    const um = Array.from(this.userMarkets.values()).find((u) => u.state.roundId === roundId);
+    if (um && !um.state.resolved) {
+      return this.submitUserMarketBet(um.state.targetWord, participantId, participantName, answer);
     }
     if (!this.currentRound || this.currentRound.id !== roundId) return;
     if (this.currentRound.state !== 'open') return;

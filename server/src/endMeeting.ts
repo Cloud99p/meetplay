@@ -28,6 +28,7 @@ export async function endMeetingRoom(roomId: string): Promise<void> {
   const engine = getGameEngine(roomId);
   await engine.resolveMarket();
   await engine.resolveFlashRound();
+  await engine.resolveUserMarkets();
   await engine.saveRecapQuiz();
   await deleteTranscriptEvents(roomId);
   destroyGameEngine(roomId);

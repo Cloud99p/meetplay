@@ -66,6 +66,7 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
       market.myBet = bet ? { guess: bet.guess, lockedOdds: bet.lockedOdds } : null;
     }
     const flash = participantId ? engine.getFlashSnapshot(participantId) : null;
+    const userMarkets = engine.getUserMarketsSnapshot(participantId ?? '');
     const bingo = participantId ? engine.getBingoSnapshot(participantId) : null;
     const stats = engine.getStatsSnapshot();
 
@@ -86,6 +87,7 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
         leaderboard,
         market,
         flash,
+        userMarkets,
         bingo,
         stats,
       },
@@ -320,6 +322,23 @@ async function handleMessage(
       if (!roundId) return;
       const engine = getGameEngine(roomId);
       await engine.submitAnswer(roundId, senderId, sender.name, payload.answer);
+      break;
+    }
+
+    case 'game:userMarket:create': {
+      const engine = getGameEngine(roomId);
+      const error = await engine.createUserMarket(
+        senderId,
+        sender.name,
+        payload.word,
+        payload.guess
+      );
+      if (error) {
+        channelManager.sendTo(roomId, senderId, {
+          type: 'game:userMarket:error',
+          payload: { message: error },
+        });
+      }
       break;
     }
 

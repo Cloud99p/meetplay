@@ -336,6 +336,8 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                   quiet={state.gameQuiet}
                   market={state.market}
                   flash={state.flash}
+                  userMarkets={state.userMarkets}
+                  userMarketError={state.userMarketError}
                   bingo={state.bingo}
                   stats={state.stats}
                   onMarketBet={(guess) => actions.placeMarketBet(guess)}
@@ -344,6 +346,8 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                       actions.placeFlashBet(state.flash.roundId, guess);
                     }
                   }}
+                  onCreateUserMarket={(word, guess) => actions.createUserMarket(word, guess)}
+                  onUserMarketBet={(roundId, guess) => actions.placeUserMarketBet(roundId, guess)}
                 />
               );
             })()}

@@ -69,6 +69,18 @@ export interface RoomStateSnapshot {
     resolved: boolean;
     actualCount?: number;
   } | null;
+  userMarkets: Array<{
+    roundId: string;
+    targetWord: string;
+    createdBy: string;
+    createdByName: string;
+    startedAt: string;
+    liveCount: number;
+    odds: Record<string, number>;
+    myBet: { guess: number; lockedOdds: number } | null;
+    resolved: boolean;
+    actualCount?: number;
+  }>;
   bingo: {
     roundId: string;
     roundNumber: number;
