@@ -52,6 +52,23 @@ const CONNECT_OPTIONS: RoomConnectOptions = {
 const VIDEO_CAPTURE_RESOLUTION = { width: 1920, height: 1080 };
 
 /**
+ * Audio capture constraints, forced explicitly.
+ *
+ * The SDK defaults to `voiceIsolation: true`; on Windows/Chrome that newer
+ * constraint takes over from classic echo cancellation and has been reported
+ * to leave a live acoustic loop (your own voice played back, escalating into
+ * a feedback howl) — exactly the bug we saw. We force classic AEC + noise
+ * suppression + auto-gain and turn voice isolation OFF so the browser always
+ * runs the well-tested echo canceller.
+ */
+const AUDIO_CAPTURE_OPTIONS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  voiceIsolation: false,
+} as const;
+
+/**
  * Pick the best codec this browser can actually publish:
  *  AV1 (best quality-per-bit, modern Chrome/Edge) -> VP9 (broad + SVC) -> VP8 (fallback).
  * Mirrors the SDK's own recommendation; supportsAV1/supportsVP9 already exclude
@@ -68,6 +85,7 @@ function createRoom(): Room {
     adaptiveStream: true,
     dynacast: true,
     videoCaptureDefaults: { resolution: VIDEO_CAPTURE_RESOLUTION },
+    audioCaptureDefaults: AUDIO_CAPTURE_OPTIONS,
     publishDefaults: {
       videoCodec: pickVideoCodec(),
       backupCodec: { codec: 'vp8' },
@@ -240,7 +258,7 @@ export async function connectToLiveKit(
     // the same way. Failures (permission denied / no device) are non-fatal
     // — the user can still join and enable media manually.
     try {
-      await room.localParticipant.setMicrophoneEnabled(true);
+      await room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS);
     } catch (e) {
       console.warn('[livekit] mic auto-enable failed:', (e as Error)?.message ?? e);
     }

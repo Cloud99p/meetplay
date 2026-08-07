@@ -81,7 +81,7 @@ export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
 
   const cameraGrid = (
     <div
-      className="grid gap-2 min-h-0 flex-1"
+      className="grid gap-2 flex-1 min-h-0"
       style={{
         gridTemplateColumns: `repeat(${cols}, 1fr)`,
         gridTemplateRows: `repeat(${Math.ceil(tiles.length / cols)}, 1fr)`,
@@ -118,7 +118,7 @@ export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
   }
 
   return (
-    <div className={`h-full ${className}`}>
+    <div className={`flex flex-col h-full min-h-0 ${className}`}>
       {cameraGrid}
     </div>
   );
