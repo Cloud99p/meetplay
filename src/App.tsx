@@ -101,7 +101,12 @@ function MeetingRoute({
       .finally(() => setResuming(false));
   }, [state.room, roomId, actions]);
 
-  if (resuming) {
+  if (resuming || (!state.room && !resumeFailed)) {
+    // Either the resume is in flight, or it hasn't started yet (first
+    // render after a refresh). NEVER navigate away here — the old code
+    // rendered <Navigate to="/"> on first render (state.room is null)
+    // before the resume effect ran, so a refresh always bounced to the
+    // landing page. Only resume failure is allowed to kick us out.
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center gap-3 bg-bg text-foreground px-6">
         <div className="w-10 h-10 rounded-full border-4 border-border border-t-primary animate-spin" />
@@ -110,7 +115,11 @@ function MeetingRoute({
     );
   }
 
-  if (resumeFailed || !state.room || state.room.id !== roomId) {
+  if (resumeFailed) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!state.room || state.room.id !== roomId) {
     return <Navigate to="/" replace />;
   }
 

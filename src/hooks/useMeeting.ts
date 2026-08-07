@@ -778,6 +778,17 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         }
         setLiveKitRoom(lkRoom);
       }
+      // Refresh the snapshot with the fresh token so a SECOND refresh also
+      // resumes cleanly (join reuses the participant row either way).
+      saveSessionSnapshot({
+        roomId: result.room.id,
+        participantId: result.participant.id,
+        participantName: result.participant.name,
+        isHost: snap.isHost,
+        livekitUrl: result.livekitUrl,
+        token: result.token,
+        password: snap.password,
+      });
       return true;
     } catch (e) {
       console.error('[meeting] resumeSession failed:', e);
