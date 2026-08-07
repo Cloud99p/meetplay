@@ -90,9 +90,12 @@ function createRoom(): Room {
       videoCodec: pickVideoCodec(),
       backupCodec: { codec: 'vp8' },
       // Lower layers used with the VP8 fallback (VP9/AV1 SVC derive their own
-      // spatial layers, so this is ignored there). h540 gives the mid layer
-      // a real quality step instead of jumping 360p -> full res.
-      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360, VideoPresets.h540],
+      // spatial layers, so this is ignored there). h720 top layer keeps video
+      // crisp on large tiles instead of capping at 540p.
+      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360, VideoPresets.h720],
+      // Default encoding when simulcast isn't negotiated (non-SVC codec path):
+      // 1280x720@30fps @ 2.5 Mbps so the single-layer case is sharp too.
+      videoEncoding: VideoPresets.h720.encoding,
       degradationPreference: 'maintain-resolution',
       // Screen share: default is 1080p @ 3 Mbps; bump to 4 Mbps so text and
       // slides stay crisp when presenting.
