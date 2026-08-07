@@ -133,18 +133,26 @@ if (marketUpdate) {
   console.log('market bet: SKIPPED (no market update)');
 }
 
-// ── Member-created word market: guest opens one, host bets on it ──
-guest.ws.send(JSON.stringify({ type: 'game:userMarket:create', payload: { word: 'synergy', guess: 6 } }));
+// ── Member-created word market: guest opens one with a 60s time limit, host bets on it ──
+guest.ws.send(JSON.stringify({ type: 'game:userMarket:create', payload: { word: 'synergy', guess: 6, durationSec: 60 } }));
 await new Promise((r) => setTimeout(r, 800));
 const umOpen = host.events.find((e) => e.type === 'game:userMarket:open');
-console.log('member market open:', umOpen ? `${umOpen.payload.targetWord} by ${umOpen.payload.createdByName}` : 'NONE');
+console.log('member market open:', umOpen ? `${umOpen.payload.targetWord} by ${umOpen.payload.createdByName} durationSec=${umOpen.payload.durationSec} endsAt=${umOpen.payload.endsAt ? 'yes' : 'no'}` : 'NONE');
 if (umOpen) {
   host.ws.send(JSON.stringify({ type: 'game:submit', payload: { roundId: umOpen.payload.roundId, answer: { guess: 9 } } }));
   await new Promise((r) => setTimeout(r, 800));
   const umBet = host.events.find((e) => e.type === 'game:userMarket:bet');
   console.log('member market bet:', umBet ? `${umBet.payload.participantName} guessed ${umBet.payload.guess} @ x${umBet.payload.lockedOdds}` : 'NONE');
   const umUpd = host.events.find((e) => e.type === 'game:userMarket:update');
-  console.log('member market update:', umUpd ? `count=${umUpd.payload.liveCount}` : 'NONE');
+  console.log('member market update:', umUpd ? `count=${umUpd.payload.liveCount} remainingMs=${umUpd.payload.remainingMs}` : 'NONE');
+  // Wait for the 60s timer to resolve it (up to 75s)
+  console.log('waiting for timed member market resolution (60s)...');
+  for (let i = 0; i < 75; i++) {
+    if (host.events.some((e) => e.type === 'game:userMarket:resolved')) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  const umResolved = host.events.find((e) => e.type === 'game:userMarket:resolved');
+  console.log('member market resolved:', umResolved ? `count=${umResolved.payload.actualCount} results=${umResolved.payload.results.length}` : 'NONE');
 } else {
   // Try to see if an error came back
   const umErr = guest.events.find((e) => e.type === 'game:userMarket:error');

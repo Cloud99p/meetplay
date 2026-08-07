@@ -110,12 +110,20 @@ export class RoomGameEngine {
   flash: FlashState | null = null;
   speakerStats: Map<string, SpeakerStats> = new Map();
   // Member-created word bets (community markets) — keyed by lowercase word
-  userMarkets: Map<string, { state: MarketState; createdBy: string; createdByName: string }> = new Map();
+  userMarkets: Map<string, {
+    state: MarketState;
+    createdBy: string;
+    createdByName: string;
+    endsAt?: number;
+    endTimer?: NodeJS.Timeout | null;
+  }> = new Map();
   private statsDirty = false;
   private statsTimer: NodeJS.Timeout | null = null;
   private nameById: Map<string, string> = new Map();
 
   private static MAX_USER_MARKETS = 5;
+  // Allowed durations for member markets, in seconds (0 = call-long)
+  static readonly USER_MARKET_DURATIONS = [0, 60, 120, 300, 600];
 
   constructor(roomId: string) {
     this.roomId = roomId;
@@ -617,7 +625,8 @@ export class RoomGameEngine {
     participantId: string,
     participantName: string,
     rawWord: unknown,
-    rawGuess: unknown
+    rawGuess: unknown,
+    rawDurationSec?: unknown
   ): Promise<string | null> {
     const word = String(rawWord ?? '').toLowerCase().trim();
     const guess = Number(rawGuess);
@@ -626,6 +635,10 @@ export class RoomGameEngine {
     }
     if (!Number.isFinite(guess) || guess < 0 || guess > 9999) {
       return 'Guess must be a number between 0 and 9999.';
+    }
+    const durationSec = Number(rawDurationSec ?? 0);
+    if (!RoomGameEngine.USER_MARKET_DURATIONS.includes(durationSec)) {
+      return 'Duration must be call-long, 1, 2, 5 or 10 minutes.';
     }
     if (this.market?.targetWord === word) {
       return `"${word}" is already the main market word.`;
@@ -640,7 +653,7 @@ export class RoomGameEngine {
       const roundRecord = await db.createGameRound({
         roomId: this.roomId,
         gameType: 'user_word_bet',
-        roundData: { targetWord: word, initialCount: 0, createdBy: participantName },
+        roundData: { targetWord: word, initialCount: 0, createdBy: participantName, durationSec },
       });
       const state: MarketState = {
         roundId: roundRecord.id,
@@ -651,7 +664,21 @@ export class RoomGameEngine {
         resolved: false,
         lastBroadcast: 0,
       };
-      this.userMarkets.set(word, { state, createdBy: participantId, createdByName: participantName });
+      const entry: {
+        state: MarketState;
+        createdBy: string;
+        createdByName: string;
+        endsAt?: number;
+        endTimer?: NodeJS.Timeout | null;
+      } = { state, createdBy: participantId, createdByName: participantName };
+      this.userMarkets.set(word, entry);
+      // Optional time limit: resolve this market when the timer fires
+      if (durationSec > 0) {
+        entry.endsAt = Date.now() + durationSec * 1000;
+        entry.endTimer = setTimeout(() => {
+          this.resolveUserMarket(word);
+        }, durationSec * 1000);
+      }
       channelManager.broadcast(this.roomId, {
         type: 'game:userMarket:open',
         payload: {
@@ -660,11 +687,13 @@ export class RoomGameEngine {
           createdBy: participantId,
           createdByName: participantName,
           startedAt: new Date(state.startedAt).toISOString(),
+          durationSec,
+          endsAt: entry.endsAt ? new Date(entry.endsAt).toISOString() : undefined,
         },
       });
       // Creator's own guess is auto-placed as their bet
       await this.submitUserMarketBet(word, participantId, participantName, { guess });
-      console.log(`[engine:${this.roomId}] Member market opened on "${word}" by ${participantName}`);
+      console.log(`[engine:${this.roomId}] Member market opened on "${word}" by ${participantName}${durationSec > 0 ? ` (${durationSec}s)` : ' (call-long)'}`);
       return null;
     } catch (e) {
       console.error(`[engine:${this.roomId}] createUserMarket error:`, e);
@@ -739,51 +768,84 @@ export class RoomGameEngine {
         targetWord: m.targetWord,
         liveCount: m.liveCount,
         odds,
+        remainingMs: entry.endsAt ? Math.max(0, entry.endsAt - now) : undefined,
       },
     });
+  }
+
+  /** Resolve a single member market (used by timed expiry). */
+  async resolveUserMarket(word: string): Promise<void> {
+    const entry = this.userMarkets.get(word);
+    if (!entry || entry.state.resolved) return;
+    if (entry.endTimer) {
+      clearTimeout(entry.endTimer);
+      entry.endTimer = null;
+    }
+    await this.finalizeUserMarket(entry);
   }
 
   /** Resolve all member markets at meeting end. Idempotent. */
   async resolveUserMarkets(): Promise<void> {
     for (const entry of this.userMarkets.values()) {
-      const m = entry.state;
-      if (m.resolved) continue;
-      m.resolved = true;
-      const actualCount = m.liveCount;
-      await db.updateGameRound(m.roundId, {
-        state: 'scored',
-        ended_at: new Date().toISOString(),
-        round_data: { targetWord: m.targetWord, initialCount: 0, actualCount, createdBy: entry.createdByName },
-      });
-      const results: Array<{ participantId: string; participantName: string; submission: unknown; score: number }> = [];
-      for (const bet of m.bets.values()) {
-        const score = Math.round(calculateBetScore(bet.guess, actualCount) * oddsMultiplier(bet.lockedOdds));
-        await db.saveGameSubmission({
-          roundId: m.roundId,
-          participantId: bet.participantId,
-          submission: { guess: bet.guess, lockedOdds: bet.lockedOdds },
-          score,
-        });
-        results.push({
-          participantId: bet.participantId,
-          participantName: this.nameById.get(bet.participantId) ?? 'Unknown',
-          submission: { guess: bet.guess },
-          score,
-        });
+      if (entry.state.resolved) continue;
+      if (entry.endTimer) {
+        clearTimeout(entry.endTimer);
+        entry.endTimer = null;
       }
-      const leaderboard = await this.buildLeaderboard();
-      channelManager.broadcast(this.roomId, {
-        type: 'game:userMarket:resolved',
-        payload: {
-          roundId: m.roundId,
-          targetWord: m.targetWord,
-          actualCount,
-          results,
-          leaderboard,
-        },
-      });
-      console.log(`[engine:${this.roomId}] Member market resolved: "${m.targetWord}" = ${actualCount}`);
+      await this.finalizeUserMarket(entry);
     }
+  }
+
+  private async finalizeUserMarket(entry: {
+    state: MarketState;
+    createdBy: string;
+    createdByName: string;
+    endsAt?: number;
+    endTimer?: NodeJS.Timeout | null;
+  }): Promise<void> {
+    const m = entry.state;
+    if (m.resolved) return;
+    m.resolved = true;
+    const actualCount = m.liveCount;
+    await db.updateGameRound(m.roundId, {
+      state: 'scored',
+      ended_at: new Date().toISOString(),
+      round_data: {
+        targetWord: m.targetWord,
+        initialCount: 0,
+        actualCount,
+        createdBy: entry.createdByName,
+        durationSec: entry.endsAt ? Math.round((entry.endsAt - m.startedAt) / 1000) : 0,
+      },
+    });
+    const results: Array<{ participantId: string; participantName: string; submission: unknown; score: number }> = [];
+    for (const bet of m.bets.values()) {
+      const score = Math.round(calculateBetScore(bet.guess, actualCount) * oddsMultiplier(bet.lockedOdds));
+      await db.saveGameSubmission({
+        roundId: m.roundId,
+        participantId: bet.participantId,
+        submission: { guess: bet.guess, lockedOdds: bet.lockedOdds },
+        score,
+      });
+      results.push({
+        participantId: bet.participantId,
+        participantName: this.nameById.get(bet.participantId) ?? 'Unknown',
+        submission: { guess: bet.guess },
+        score,
+      });
+    }
+    const leaderboard = await this.buildLeaderboard();
+    channelManager.broadcast(this.roomId, {
+      type: 'game:userMarket:resolved',
+      payload: {
+        roundId: m.roundId,
+        targetWord: m.targetWord,
+        actualCount,
+        results,
+        leaderboard,
+      },
+    });
+    console.log(`[engine:${this.roomId}] Member market resolved: "${m.targetWord}" = ${actualCount}`);
   }
 
   getUserMarketsSnapshot(participantId: string): Array<{
@@ -792,6 +854,8 @@ export class RoomGameEngine {
     createdBy: string;
     createdByName: string;
     startedAt: string;
+    endsAt?: string;
+    durationSec?: number;
     liveCount: number;
     odds: Record<string, number>;
     myBet: { guess: number; lockedOdds: number } | null;
@@ -804,6 +868,8 @@ export class RoomGameEngine {
       createdBy: string;
       createdByName: string;
       startedAt: string;
+      endsAt?: string;
+      durationSec?: number;
       liveCount: number;
       odds: Record<string, number>;
       myBet: { guess: number; lockedOdds: number } | null;
@@ -819,6 +885,8 @@ export class RoomGameEngine {
         createdBy: entry.createdBy,
         createdByName: entry.createdByName,
         startedAt: new Date(m.startedAt).toISOString(),
+        endsAt: entry.endsAt ? new Date(entry.endsAt).toISOString() : undefined,
+        durationSec: entry.endsAt ? Math.round((entry.endsAt - m.startedAt) / 1000) : undefined,
         liveCount: m.liveCount,
         odds: computeGuessOdds(Array.from(m.bets.values()), m.liveCount),
         myBet: bet ? { guess: bet.guess, lockedOdds: bet.lockedOdds } : null,
@@ -1296,6 +1364,12 @@ export class RoomGameEngine {
       clearTimeout((this as any)._flashNextTimer);
       (this as any)._flashNextTimer = null;
     }
+    for (const entry of this.userMarkets.values()) {
+      if (entry.endTimer) {
+        clearTimeout(entry.endTimer);
+        entry.endTimer = null;
+      }
+    }
     if (this.statsTimer) {
       clearInterval(this.statsTimer);
       this.statsTimer = null;
@@ -1304,6 +1378,7 @@ export class RoomGameEngine {
     this.currentRound = null;
     this.bingo = null;
     this.flash = null;
+    this.userMarkets.clear();
   }
 }
 

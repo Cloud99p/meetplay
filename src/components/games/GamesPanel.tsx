@@ -27,7 +27,7 @@ interface Props {
   stats: RoomStateSnapshot['stats'];
   onMarketBet: (guess: number) => void;
   onFlashBet: (guess: number) => void;
-  onCreateUserMarket: (word: string, guess: number) => void;
+  onCreateUserMarket: (word: string, guess: number, durationSec: number) => void;
   onUserMarketBet: (roundId: string, guess: number) => void;
 }
 

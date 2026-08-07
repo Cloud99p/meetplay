@@ -331,7 +331,8 @@ async function handleMessage(
         senderId,
         sender.name,
         payload.word,
-        payload.guess
+        payload.guess,
+        payload.durationSec
       );
       if (error) {
         channelManager.sendTo(roomId, senderId, {

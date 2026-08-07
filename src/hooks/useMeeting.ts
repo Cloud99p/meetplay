@@ -63,7 +63,7 @@ export interface MeetingActions {
   submitAnswer: (roundId: string, answer: unknown) => void;
   placeMarketBet: (guess: number) => void;
   placeFlashBet: (roundId: string, guess: number) => void;
-  createUserMarket: (word: string, guess: number) => void;
+  createUserMarket: (word: string, guess: number, durationSec?: number) => void;
   placeUserMarketBet: (roundId: string, guess: number) => void;
 }
 
@@ -401,7 +401,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
 
     // ── Member-created word markets (community) ──
     unsubs.push(
-      ws.on('game:userMarket:open', (payload: { roundId: string; targetWord: string; createdBy: string; createdByName: string; startedAt: string }) => {
+      ws.on('game:userMarket:open', (payload: { roundId: string; targetWord: string; createdBy: string; createdByName: string; startedAt: string; durationSec?: number; endsAt?: string }) => {
         setUserMarkets((prev) => {
           if (prev.some((m) => m.targetWord === payload.targetWord)) return prev;
           return [
@@ -412,6 +412,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
               createdBy: payload.createdBy,
               createdByName: payload.createdByName,
               startedAt: payload.startedAt,
+              endsAt: payload.endsAt,
+              durationSec: payload.durationSec,
               liveCount: 0,
               odds: {},
               myBet: null,
@@ -424,9 +426,18 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     );
 
     unsubs.push(
-      ws.on('game:userMarket:update', (payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number> }) => {
+      ws.on('game:userMarket:update', (payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number>; remainingMs?: number }) => {
         setUserMarkets((prev) =>
-          prev.map((m) => (m.roundId === payload.roundId ? { ...m, liveCount: payload.liveCount, odds: payload.odds } : m))
+          prev.map((m) =>
+            m.roundId === payload.roundId
+              ? {
+                  ...m,
+                  liveCount: payload.liveCount,
+                  odds: payload.odds,
+                  endsAt: payload.remainingMs !== undefined ? new Date(Date.now() + payload.remainingMs).toISOString() : m.endsAt,
+                }
+              : m
+          )
         );
       })
     );
@@ -942,8 +953,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.send('game:submit', { roundId, answer: { guess } });
   }, [ws]);
 
-  const createUserMarket = useCallback((word: string, guess: number) => {
-    ws.send('game:userMarket:create', { word, guess });
+  const createUserMarket = useCallback((word: string, guess: number, durationSec?: number) => {
+    ws.send('game:userMarket:create', { word, guess, durationSec });
   }, [ws]);
 
   const placeUserMarketBet = useCallback((roundId: string, guess: number) => {

@@ -1,35 +1,61 @@
-import { useState } from 'react';
-import { FiPlus, FiUsers, FiCheck, FiAward, FiAlertCircle } from 'react-icons/fi';
+import { useEffect, useState } from 'react';
+import { FiPlus, FiUsers, FiCheck, FiAward, FiAlertCircle, FiClock } from 'react-icons/fi';
 import type { RoomStateSnapshot } from '../../types/games';
 
 interface Props {
   markets: RoomStateSnapshot['userMarkets'];
   myParticipantId: string | null;
   error: string | null;
-  onCreate: (word: string, guess: number) => void;
+  onCreate: (word: string, guess: number, durationSec: number) => void;
   onBet: (roundId: string, guess: number) => void;
   quiet?: boolean;
 }
 
+const DURATIONS: Array<{ label: string; sec: number }> = [
+  { label: 'Call-long', sec: 0 },
+  { label: '1 min', sec: 60 },
+  { label: '2 min', sec: 120 },
+  { label: '5 min', sec: 300 },
+  { label: '10 min', sec: 600 },
+];
+
+function formatTime(ms: number): string {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 /**
  * Member-created word markets — anyone in the call can open a bet on a word
- * ("I think 'synergy' gets said 10 times by end of call"), and everyone else
- * can bet on it too. Resolves at meeting end like the main market.
+ * ("I think 'synergy' gets said 10 times"), optionally with a time limit
+ * (1/2/5/10 min) instead of call-long. Everyone else can bet on it too.
+ * Resolves when the timer fires or at meeting end.
  */
 export default function UserMarkets({ markets, myParticipantId, error, onCreate, onBet, quiet }: Props) {
   const [word, setWord] = useState('');
   const [guess, setGuess] = useState('');
+  const [durationSec, setDurationSec] = useState(0);
   const [betInputs, setBetInputs] = useState<Record<string, string>>({});
+  const [now, setNow] = useState(Date.now());
 
   const canCreate = markets.length < 5;
+
+  // 1s ticker for countdowns on timed markets
+  useEffect(() => {
+    if (!markets.some((m) => m.endsAt && !m.resolved)) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [markets]);
 
   const handleCreate = () => {
     const w = word.trim();
     const g = parseInt(guess, 10);
     if (!w || isNaN(g) || g < 0) return;
-    onCreate(w, g);
+    onCreate(w, g, durationSec);
     setWord('');
     setGuess('');
+    setDurationSec(0);
   };
 
   const handleBet = (roundId: string) => {
@@ -78,6 +104,23 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
               <FiPlus className="w-4 h-4" /> Open
             </button>
           </div>
+          {/* Duration picker */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] text-muted uppercase tracking-wider mr-0.5">Window:</span>
+            {DURATIONS.map((d) => (
+              <button
+                key={d.sec}
+                onClick={() => setDurationSec(d.sec)}
+                className={`px-2 py-1 text-[11px] rounded-md border transition-colors cursor-pointer ${
+                  durationSec === d.sec
+                    ? 'border-secondary bg-secondary/15 text-foreground font-medium'
+                    : 'border-border bg-bg-surface text-muted hover:text-foreground'
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
           {error && (
             <p className="text-[11px] text-danger flex items-center gap-1">
               <FiAlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
@@ -98,6 +141,9 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
               .sort((a, b) => a.odds - b.odds)
               .slice(0, 3);
             const mine = m.createdBy === myParticipantId;
+            const timed = Boolean(m.endsAt && !m.resolved);
+            const remainingMs = m.endsAt ? new Date(m.endsAt).getTime() - now : 0;
+            const expiring = timed && remainingMs < 30_000;
             return (
               <div key={m.roundId} className="bg-bg-surface border border-border rounded-lg p-2.5 space-y-2">
                 <div className="flex items-center justify-between">
@@ -106,6 +152,11 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
                     {mine && <span className="text-[10px] text-primary ml-1.5 bg-primary/10 px-1.5 py-0.5 rounded-full">yours</span>}
                   </p>
                   <div className="flex items-center gap-2">
+                    {timed && (
+                      <span className={`flex items-center gap-1 text-[10px] font-mono font-semibold ${expiring ? 'text-warning' : 'text-muted'}`}>
+                        <FiClock className="w-3 h-3" /> {formatTime(remainingMs)}
+                      </span>
+                    )}
                     {m.resolved && (
                       <span className="text-[10px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">RESOLVED</span>
                     )}

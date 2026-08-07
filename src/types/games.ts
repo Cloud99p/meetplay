@@ -75,6 +75,8 @@ export interface RoomStateSnapshot {
     createdBy: string;
     createdByName: string;
     startedAt: string;
+    endsAt?: string;
+    durationSec?: number;
     liveCount: number;
     odds: Record<string, number>;
     myBet: { guess: number; lockedOdds: number } | null;

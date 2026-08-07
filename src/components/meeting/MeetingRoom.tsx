@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
 import { useStt } from '../../hooks/useStt';
-import { FiAlertTriangle, FiCircle, FiLink, FiUsers } from 'react-icons/fi';
+import { FiAlertTriangle, FiCircle, FiLink, FiMicOff, FiUsers } from 'react-icons/fi';
 import VideoGrid from './VideoGrid';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
@@ -29,6 +29,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const [recordingNoticeDismissed, setRecordingNoticeDismissed] = useState(false);
+  const [captionsNudgeDismissed, setCaptionsNudgeDismissed] = useState(false);
   const { localParticipant } = useLocalParticipant();
 
   // Re-show recording result/error notices when a new one arrives
@@ -104,6 +105,34 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
   return (
     <div className="h-screen flex flex-col bg-bg-base">
+      {/* Captions & games OFF nudge — host only, dismissible. The entire
+          engagement layer (word bets, bingo, quizzes) is starved without
+          transcription, so make it loud. */}
+      {state.isHost && !state.transcriptionEnabled && !captionsNudgeDismissed && (
+        <div
+          role="status"
+          className="flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-sm text-foreground"
+        >
+          <FiMicOff className="w-4 h-4 text-amber-500 flex-shrink-0 animate-pulse" />
+          <p className="flex-1 min-w-0">
+            <span className="font-semibold">Captions &amp; games are off.</span>
+            <span className="text-muted"> Enable transcription to unlock word bets, bingo and the recap quiz.</span>
+          </p>
+          <button
+            onClick={() => actions.toggleTranscription(true)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-md bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 transition-colors cursor-pointer"
+          >
+            Enable now
+          </button>
+          <button
+            onClick={() => setCaptionsNudgeDismissed(true)}
+            className="text-xs font-medium px-2 py-1.5 rounded-md text-muted hover:text-foreground transition-colors cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Consent Banner */}
       <ConsentBanner visible={consentShown} onDismiss={() => setConsentShown(false)} />
 
@@ -346,7 +375,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                       actions.placeFlashBet(state.flash.roundId, guess);
                     }
                   }}
-                  onCreateUserMarket={(word, guess) => actions.createUserMarket(word, guess)}
+                  onCreateUserMarket={(word, guess, durationSec) => actions.createUserMarket(word, guess, durationSec)}
                   onUserMarketBet={(roundId, guess) => actions.placeUserMarketBet(roundId, guess)}
                 />
               );

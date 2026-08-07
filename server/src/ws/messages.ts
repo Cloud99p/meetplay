@@ -18,6 +18,7 @@ export const GameSubmitPayload = z.object({
 export const UserMarketCreatePayload = z.object({
   word: z.string().min(1).max(30),
   guess: z.number().int().min(0).max(9999),
+  durationSec: z.number().int().min(0).max(600).optional(),
 });
 export const ParticipantMutePayload = z.object({
   targetId: z.string().uuid(),
@@ -71,8 +72,8 @@ export type ServerMessage =
   | { type: 'game:flash:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number>; remainingMs: number } }
   | { type: 'game:flash:bet'; payload: { roundId: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number } }
   | { type: 'game:flash:resolved'; payload: { roundId: string; targetWord: string; windowMs: number; actualCount: number; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
-  | { type: 'game:userMarket:open'; payload: { roundId: string; targetWord: string; createdBy: string; createdByName: string; startedAt: string } }
-  | { type: 'game:userMarket:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number> } }
+  | { type: 'game:userMarket:open'; payload: { roundId: string; targetWord: string; createdBy: string; createdByName: string; startedAt: string; durationSec?: number; endsAt?: string } }
+  | { type: 'game:userMarket:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number>; remainingMs?: number } }
   | { type: 'game:userMarket:bet'; payload: { roundId: string; targetWord: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number } }
   | { type: 'game:userMarket:resolved'; payload: { roundId: string; targetWord: string; actualCount: number; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
   | { type: 'game:userMarket:error'; payload: { message: string } }
@@ -141,6 +142,8 @@ export interface UserMarketSnapshot {
   createdBy: string;
   createdByName: string;
   startedAt: string;
+  endsAt?: string;
+  durationSec?: number;
   liveCount: number;
   odds: Record<string, number>;
   myBet: { guess: number; lockedOdds: number } | null;
