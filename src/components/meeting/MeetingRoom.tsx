@@ -10,7 +10,7 @@ import ParticipantList from './ParticipantList';
 import ConsentBanner from './ConsentBanner';
 import ChatPanel from '../chat/ChatPanel';
 import GamesPanel from '../games/GamesPanel';
-import { useLocalParticipant } from '@livekit/components-react';
+import { useLocalParticipant, RoomAudioRenderer } from '@livekit/components-react';
 import type { GameRound } from '../../types/games';
 
 interface Props {
@@ -222,6 +222,10 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Video area */}
         <div className="flex-1 relative min-w-0">
+          {/* Remote audio playback — attaches every participant's mic
+              track to an <audio> element. Without this, remote audio is
+              received by the SDK but never played: total silence. */}
+          <RoomAudioRenderer />
           {viewMode === 'grid' ? (
             <VideoGrid onSpeakerClick={(id) => { setActiveSpeakerId(id); setViewMode('speaker'); }} />
           ) : (

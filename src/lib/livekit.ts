@@ -186,6 +186,31 @@ export async function connectToLiveKit(
     // identity and name are embedded in the LiveKit JWT by the server.
     // Timeout/retry options are passed per-connect (RoomConnectOptions).
     await room.connect(livekitUrl, token, CONNECT_OPTIONS);
+
+    // Publish local media right away (standard meeting behavior: you join
+    // with mic + camera on). Toggling the ControlBar buttons later works
+    // the same way. Failures (permission denied / no device) are non-fatal
+    // — the user can still join and enable media manually.
+    try {
+      await room.localParticipant.setMicrophoneEnabled(true);
+    } catch (e) {
+      console.warn('[livekit] mic auto-enable failed:', (e as Error)?.message ?? e);
+    }
+    try {
+      await room.localParticipant.setCameraEnabled(true);
+    } catch (e) {
+      console.warn('[livekit] camera auto-enable failed:', (e as Error)?.message ?? e);
+    }
+
+    // Unlock audio playback (browser autoplay policy). Called right after
+    // connect, which happens from a user gesture (Join click), so it's
+    // allowed; this guarantees remote audio actually plays.
+    try {
+      await room.startAudio();
+    } catch (e) {
+      console.warn('[livekit] startAudio:', (e as Error)?.message ?? e);
+    }
+
     return { room };
   } catch (e: any) {
     const msg = e?.message ?? '';
