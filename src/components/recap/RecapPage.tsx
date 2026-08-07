@@ -15,6 +15,7 @@ const GAME_LABELS: Record<string, string> = {
   who_said_that: 'Who Said That?',
   scrabble: 'Meeting Scrabble',
   word_count_bet: 'Word Count Bet',
+  flash_wcb: '⚡ Flash Word Count Bet',
   bingo: 'Buzzword Bingo',
   recap_quiz: 'Recap Quiz',
 };
@@ -247,6 +248,17 @@ export default function RecapPage({ roomId, onBack }: Props) {
                         {Boolean(round.roundData && (round.roundData as any).actualCount !== undefined) && (
                           <span className="text-muted ml-2">actual count: {String((round.roundData as any).actualCount)}</span>
                         )}
+                      </p>
+                    )}
+                    {round.gameType === 'flash_wcb' && (
+                      <p className="text-sm text-foreground mb-2">
+                        Flash word: <strong className="text-warning">"{String((round.roundData as any)?.targetWord ?? '')}"</strong>
+                        <span className="text-muted ml-2">
+                          {Math.round(Number((round.roundData as any)?.windowMs ?? 0) / 1000)}s window
+                          {Boolean(round.roundData && (round.roundData as any).actualCount !== undefined) && (
+                            <> · actual count: <strong className="text-foreground">{String((round.roundData as any).actualCount)}</strong></>
+                          )}
+                        </span>
                       </p>
                     )}
                     {round.gameType === 'bingo' && (

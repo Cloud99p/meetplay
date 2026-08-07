@@ -335,9 +335,15 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                   transcriptionEnabled={state.transcriptionEnabled}
                   quiet={state.gameQuiet}
                   market={state.market}
+                  flash={state.flash}
                   bingo={state.bingo}
                   stats={state.stats}
                   onMarketBet={(guess) => actions.placeMarketBet(guess)}
+                  onFlashBet={(guess) => {
+                    if (state.flash && !state.flash.resolved) {
+                      actions.placeFlashBet(state.flash.roundId, guess);
+                    }
+                  }}
                 />
               );
             })()}

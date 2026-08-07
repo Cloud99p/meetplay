@@ -65,6 +65,7 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
       const bet = engine.market?.bets.get(participantId);
       market.myBet = bet ? { guess: bet.guess, lockedOdds: bet.lockedOdds } : null;
     }
+    const flash = participantId ? engine.getFlashSnapshot(participantId) : null;
     const bingo = participantId ? engine.getBingoSnapshot(participantId) : null;
     const stats = engine.getStatsSnapshot();
 
@@ -84,6 +85,7 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
         activeRound,
         leaderboard,
         market,
+        flash,
         bingo,
         stats,
       },

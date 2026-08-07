@@ -31,6 +31,22 @@ const BINGO_NEXT_ROUND_DELAY_MS = 12_000;
 const STATS_BROADCAST_INTERVAL_MS = 3_000;
 const MARKET_UPDATE_THROTTLE_MS = 1_500;
 
+// Flash WCB — random short-window word count bets that pop up mid-call.
+// A word is picked (from live speech or a curated pool), a 60–120s window
+// opens, players bet how many times it'll be said, then it resolves and
+// the next flash is scheduled at a random interval.
+const FLASH_WINDOW_MS_OPTIONS = [60_000, 90_000, 120_000];
+const FLASH_FIRST_DELAY_MIN_MS = 20_000;
+const FLASH_FIRST_DELAY_MAX_MS = 60_000;
+const FLASH_NEXT_DELAY_MIN_MS = 30_000;
+const FLASH_NEXT_DELAY_MAX_MS = 90_000;
+const FLASH_WORD_POOL = [
+  'roadmap', 'deadline', 'budget', 'client', 'update', 'review', 'agenda',
+  'quarter', 'launch', 'feedback', 'sync', 'project', 'status', 'plan',
+  'goal', 'issue', 'report', 'meeting', 'team', 'timeline', 'priority',
+  'strategy', 'revenue', 'growth', 'product', 'design', 'engineer', 'test',
+];
+
 interface ActiveRound {
   id: string;
   gameType: GameType;
@@ -63,6 +79,20 @@ interface BingoState {
   nextTimer: NodeJS.Timeout | null;
 }
 
+interface FlashState {
+  roundId: string;
+  targetWord: string;
+  windowMs: number;
+  startedAt: number;
+  endsAt: number;
+  liveCount: number;
+  bets: Map<string, MarketBet>;
+  resolved: boolean;
+  lastBroadcast: number;
+  endTimer: NodeJS.Timeout | null;
+  nextTimer: NodeJS.Timeout | null;
+}
+
 // Guards against double-finalization when endMeetingRoom runs in parallel
 // (WS room:end + HTTP fallback are both idempotent callers).
 const quizSavedRooms = new Set<string>();
@@ -77,6 +107,7 @@ export class RoomGameEngine {
   // Layer A — always-on passive games
   market: MarketState | null = null;
   bingo: BingoState | null = null;
+  flash: FlashState | null = null;
   speakerStats: Map<string, SpeakerStats> = new Map();
   private statsDirty = false;
   private statsTimer: NodeJS.Timeout | null = null;
@@ -111,6 +142,11 @@ export class RoomGameEngine {
       await this.openBingoRound(1);
     }
     this.ensureStatsTimer();
+    // Schedule the first flash WCB at a random moment (20–60s in), then
+    // each subsequent flash 30–90s after the previous one resolves.
+    if (!this.flash?.nextTimer && !this.flash?.endTimer) {
+      this.scheduleNextFlash(true);
+    }
   }
 
   /** Pick a content word from the room name, or null if none usable. */
@@ -138,6 +174,15 @@ export class RoomGameEngine {
       if (hits > 0) {
         this.market.liveCount += hits;
         this.broadcastMarketUpdate(true /* throttled */);
+      }
+    }
+
+    // ── Layer A: flash WCB live count (only within the window) ──
+    if (this.flash && !this.flash.resolved && Date.now() <= this.flash.endsAt) {
+      const hits = countWordInText(this.flash.targetWord, utterance.text);
+      if (hits > 0) {
+        this.flash.liveCount += hits;
+        this.broadcastFlashUpdate(true /* throttled */);
       }
     }
 
@@ -325,6 +370,223 @@ export class RoomGameEngine {
       myBet: null, // per-participant, filled by caller
       resolved: m.resolved,
       actualCount: m.resolved ? m.liveCount : undefined,
+    };
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Flash WCB (Layer A) — random short-window word count bets
+  // ──────────────────────────────────────────────────────────────
+
+  /** Schedule the next flash round after a random delay. */
+  private scheduleNextFlash(first: boolean): void {
+    const min = first ? FLASH_FIRST_DELAY_MIN_MS : FLASH_NEXT_DELAY_MIN_MS;
+    const max = first ? FLASH_FIRST_DELAY_MAX_MS : FLASH_NEXT_DELAY_MAX_MS;
+    const delay = min + Math.floor(Math.random() * (max - min));
+    if (this.flash?.nextTimer) clearTimeout(this.flash.nextTimer);
+    const timer = setTimeout(() => {
+      this.openFlashRound();
+    }, delay);
+    if (this.flash) {
+      this.flash.nextTimer = timer;
+    } else {
+      // Flash hasn't been created yet — keep a standalone timer on the engine
+      (this as any)._flashNextTimer = timer;
+    }
+  }
+
+  /** Pick a word for the flash round: live speech if available, else pool. */
+  private pickFlashWord(): string {
+    const spoken = selectTargetWord(this.buffer);
+    const usable = spoken && spoken !== 'meeting' && spoken.length >= 3 && spoken !== this.market?.targetWord;
+    if (usable && Math.random() < 0.7) return spoken;
+    const pool = FLASH_WORD_POOL.filter((w) => w !== this.market?.targetWord);
+    return pool[Math.floor(Math.random() * pool.length)] ?? 'roadmap';
+  }
+
+  /** Open a random flash WCB window (60–120s). */
+  private async openFlashRound(): Promise<void> {
+    // Only one flash at a time; never overlap with an open one
+    if (this.flash && !this.flash.resolved) {
+      this.scheduleNextFlash(false);
+      return;
+    }
+    const windowMs = FLASH_WINDOW_MS_OPTIONS[Math.floor(Math.random() * FLASH_WINDOW_MS_OPTIONS.length)];
+    const targetWord = this.pickFlashWord();
+    try {
+      const roundRecord = await db.createGameRound({
+        roomId: this.roomId,
+        gameType: 'flash_wcb',
+        roundData: { targetWord, windowMs },
+      });
+      const now = Date.now();
+      this.flash = {
+        roundId: roundRecord.id,
+        targetWord,
+        windowMs,
+        startedAt: now,
+        endsAt: now + windowMs,
+        liveCount: 0,
+        bets: new Map(),
+        resolved: false,
+        lastBroadcast: 0,
+        endTimer: null,
+        nextTimer: null,
+      };
+      channelManager.broadcast(this.roomId, {
+        type: 'game:flash:open',
+        payload: {
+          roundId: roundRecord.id,
+          targetWord,
+          windowMs,
+          startedAt: new Date(now).toISOString(),
+          endsAt: new Date(now + windowMs).toISOString(),
+        },
+      });
+      console.log(`[engine:${this.roomId}] Flash WCB opened on "${targetWord}" (${Math.round(windowMs / 1000)}s window)`);
+      this.flash.endTimer = setTimeout(() => {
+        this.resolveFlashRound();
+      }, windowMs);
+    } catch (e) {
+      console.error(`[engine:${this.roomId}] openFlashRound error:`, e);
+      this.scheduleNextFlash(false);
+    }
+  }
+
+  /** Place/update a flash bet. Locks odds at current market state. */
+  async submitFlashBet(roundId: string, participantId: string, participantName: string, answer: unknown): Promise<void> {
+    if (!this.flash || this.flash.resolved || this.flash.roundId !== roundId) return;
+    const f = this.flash;
+    const raw = (answer as { guess?: unknown } | null)?.guess ?? answer;
+    const g = Number(raw);
+    if (!Number.isFinite(g) || g < 0 || g > 9999) return;
+
+    const currentOdds = computeGuessOdds(Array.from(f.bets.values()), f.liveCount);
+    const lockedOdds = currentOdds[String(g)] ?? 1.01;
+    f.bets.set(participantId, {
+      participantId,
+      guess: g,
+      lockedOdds,
+      submittedAt: Date.now(),
+    });
+
+    try {
+      await db.saveGameSubmission({
+        roundId,
+        participantId,
+        submission: { guess: g, lockedOdds },
+        score: 0,
+      });
+    } catch (e) {
+      console.error(`[engine:${this.roomId}] flash bet save error:`, e);
+    }
+
+    channelManager.broadcast(this.roomId, {
+      type: 'game:flash:bet',
+      payload: {
+        roundId,
+        participantId,
+        participantName,
+        guess: g,
+        lockedOdds,
+        liveCount: f.liveCount,
+      },
+    });
+    this.broadcastFlashUpdate(false);
+  }
+
+  /** Broadcast live count + odds + remaining time (throttled for count ticks). */
+  private broadcastFlashUpdate(throttled: boolean): void {
+    if (!this.flash || this.flash.resolved) return;
+    const f = this.flash;
+    const now = Date.now();
+    if (throttled && now - f.lastBroadcast < MARKET_UPDATE_THROTTLE_MS) return;
+    f.lastBroadcast = now;
+    const odds = computeGuessOdds(Array.from(f.bets.values()), f.liveCount);
+    channelManager.broadcast(this.roomId, {
+      type: 'game:flash:update',
+      payload: {
+        roundId: f.roundId,
+        targetWord: f.targetWord,
+        liveCount: f.liveCount,
+        odds,
+        remainingMs: Math.max(0, f.endsAt - now),
+      },
+    });
+  }
+
+  /** Resolve the flash window: score bets, broadcast, schedule next. Idempotent. */
+  async resolveFlashRound(): Promise<void> {
+    if (!this.flash || this.flash.resolved) return;
+    const f = this.flash;
+    f.resolved = true;
+    if (f.endTimer) clearTimeout(f.endTimer);
+    const actualCount = f.liveCount;
+    const roundData = { targetWord: f.targetWord, windowMs: f.windowMs, actualCount };
+    await db.updateGameRound(f.roundId, {
+      state: 'scored',
+      ended_at: new Date().toISOString(),
+      round_data: roundData,
+    });
+
+    const results: Array<{ participantId: string; participantName: string; submission: unknown; score: number }> = [];
+    for (const bet of f.bets.values()) {
+      const score = Math.round(calculateBetScore(bet.guess, actualCount) * oddsMultiplier(bet.lockedOdds));
+      await db.saveGameSubmission({
+        roundId: f.roundId,
+        participantId: bet.participantId,
+        submission: { guess: bet.guess, lockedOdds: bet.lockedOdds },
+        score,
+      });
+      results.push({
+        participantId: bet.participantId,
+        participantName: this.nameById.get(bet.participantId) ?? 'Unknown',
+        submission: { guess: bet.guess },
+        score,
+      });
+    }
+
+    const leaderboard = await this.buildLeaderboard();
+    channelManager.broadcast(this.roomId, {
+      type: 'game:flash:resolved',
+      payload: {
+        roundId: f.roundId,
+        targetWord: f.targetWord,
+        windowMs: f.windowMs,
+        actualCount,
+        results,
+        leaderboard,
+      },
+    });
+    console.log(`[engine:${this.roomId}] Flash WCB resolved: "${f.targetWord}" = ${actualCount} (${Math.round(f.windowMs / 1000)}s)`);
+    this.scheduleNextFlash(false);
+  }
+
+  getFlashSnapshot(participantId: string): {
+    roundId: string;
+    targetWord: string;
+    windowMs: number;
+    startedAt: string;
+    endsAt: string;
+    liveCount: number;
+    odds: Record<string, number>;
+    myBet: { guess: number; lockedOdds: number } | null;
+    resolved: boolean;
+    actualCount?: number;
+  } | null {
+    if (!this.flash) return null;
+    const f = this.flash;
+    const bet = f.bets.get(participantId);
+    return {
+      roundId: f.roundId,
+      targetWord: f.targetWord,
+      windowMs: f.windowMs,
+      startedAt: new Date(f.startedAt).toISOString(),
+      endsAt: new Date(f.endsAt).toISOString(),
+      liveCount: f.liveCount,
+      odds: computeGuessOdds(Array.from(f.bets.values()), f.liveCount),
+      myBet: bet ? { guess: bet.guess, lockedOdds: bet.lockedOdds } : null,
+      resolved: f.resolved,
+      actualCount: f.resolved ? f.liveCount : undefined,
     };
   }
 
@@ -585,6 +847,10 @@ export class RoomGameEngine {
     if (this.market && this.market.roundId === roundId) {
       return this.submitMarketBet(roundId, participantId, participantName, answer);
     }
+    // Route to the flash WCB if this roundId is the live flash window
+    if (this.flash && !this.flash.resolved && this.flash.roundId === roundId) {
+      return this.submitFlashBet(roundId, participantId, participantName, answer);
+    }
     if (!this.currentRound || this.currentRound.id !== roundId) return;
     if (this.currentRound.state !== 'open') return;
     if (this.currentRound.submitted.has(participantId)) return; // idempotent
@@ -776,6 +1042,16 @@ export class RoomGameEngine {
     if (this.bingo?.nextTimer) {
       clearTimeout(this.bingo.nextTimer);
     }
+    if (this.flash?.endTimer) {
+      clearTimeout(this.flash.endTimer);
+    }
+    if (this.flash?.nextTimer) {
+      clearTimeout(this.flash.nextTimer);
+    }
+    if ((this as any)._flashNextTimer) {
+      clearTimeout((this as any)._flashNextTimer);
+      (this as any)._flashNextTimer = null;
+    }
     if (this.statsTimer) {
       clearInterval(this.statsTimer);
       this.statsTimer = null;
@@ -783,6 +1059,7 @@ export class RoomGameEngine {
     this.buffer = [];
     this.currentRound = null;
     this.bingo = null;
+    this.flash = null;
   }
 }
 

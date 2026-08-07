@@ -57,6 +57,18 @@ export interface RoomStateSnapshot {
     resolved: boolean;
     actualCount?: number;
   } | null;
+  flash: {
+    roundId: string;
+    targetWord: string;
+    windowMs: number;
+    startedAt: string;
+    endsAt: string;
+    liveCount: number;
+    odds: Record<string, number>;
+    myBet: { guess: number; lockedOdds: number } | null;
+    resolved: boolean;
+    actualCount?: number;
+  } | null;
   bingo: {
     roundId: string;
     roundNumber: number;

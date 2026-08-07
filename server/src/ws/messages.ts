@@ -62,6 +62,10 @@ export type ServerMessage =
   | { type: 'game:market:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number> } }
   | { type: 'game:market:bet'; payload: { roundId: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number } }
   | { type: 'game:market:resolved'; payload: { roundId: string; targetWord: string; actualCount: number; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
+  | { type: 'game:flash:open'; payload: { roundId: string; targetWord: string; windowMs: number; startedAt: string; endsAt: string } }
+  | { type: 'game:flash:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number>; remainingMs: number } }
+  | { type: 'game:flash:bet'; payload: { roundId: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number } }
+  | { type: 'game:flash:resolved'; payload: { roundId: string; targetWord: string; windowMs: number; actualCount: number; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
   | { type: 'bingo:open'; payload: { roundId: string; roundNumber: number } }
   | { type: 'bingo:mark'; payload: { roundId: string; indices: number[] } }
   | { type: 'bingo:win'; payload: { roundId: string; roundNumber: number; participantId: string; participantName: string; lineType: string } }
@@ -108,6 +112,19 @@ export interface BingoSapshot {
   winner: { participantId: string; participantName: string } | null;
 }
 
+export interface FlashSnapshot {
+  roundId: string;
+  targetWord: string;
+  windowMs: number;
+  startedAt: string;
+  endsAt: string;
+  liveCount: number;
+  odds: Record<string, number>;
+  myBet: { guess: number; lockedOdds: number } | null;
+  resolved: boolean;
+  actualCount?: number;
+}
+
 export interface RoomStateSnapshot {
   participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
   transcriptionEnabled: boolean;
@@ -123,6 +140,7 @@ export interface RoomStateSnapshot {
   } | null;
   leaderboard: LeaderboardEntry[];
   market: MarketSnapshot | null;
+  flash: FlashSnapshot | null;
   bingo: BingoSapshot | null;
   stats: SpeakerStatRow[];
 }

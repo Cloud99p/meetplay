@@ -5,6 +5,7 @@ import { getGameTypeLabel, isGameType } from '../../lib/games/engine';
 import WhoSaidThat from './WhoSaidThat';
 import MeetingScrabble from './MeetingScrabble';
 import WordCountMarket from './WordCountMarket';
+import FlashBet from './FlashBet';
 import BingoCard from './BingoCard';
 import StatsPanel from './StatsPanel';
 
@@ -18,9 +19,11 @@ interface Props {
   quiet?: boolean;
   /** Always-on games (Layer A) */
   market: RoomStateSnapshot['market'];
+  flash: RoomStateSnapshot['flash'];
   bingo: RoomStateSnapshot['bingo'];
   stats: RoomStateSnapshot['stats'];
   onMarketBet: (guess: number) => void;
+  onFlashBet: (guess: number) => void;
 }
 
 type Tab = 'game' | 'board' | 'stats';
@@ -33,9 +36,11 @@ export default function GamesPanel({
   transcriptionEnabled,
   quiet,
   market,
+  flash,
   bingo,
   stats,
   onMarketBet,
+  onFlashBet,
 }: Props) {
   const [tab, setTab] = useState<Tab>('game');
 
@@ -76,6 +81,10 @@ export default function GamesPanel({
       <div className="flex-1 overflow-y-auto">
         {tab === 'game' && (
           <div className="flex flex-col">
+            {/* Flash WCB (random window, Layer A) — draw attention, so it sits on top */}
+            {flash && (
+              <FlashBet flash={flash} onBet={onFlashBet} quiet={quiet} />
+            )}
             {/* Always-on market (Layer A) */}
             {market && (
               <WordCountMarket market={market} onBet={onMarketBet} quiet={quiet} />

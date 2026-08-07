@@ -24,6 +24,7 @@ export interface MeetingState {
   leaderboard: LeaderboardEntry[];
   activeRound: RoomStateSnapshot['activeRound'];
   market: RoomStateSnapshot['market'];
+  flash: RoomStateSnapshot['flash'];
   bingo: RoomStateSnapshot['bingo'];
   stats: RoomStateSnapshot['stats'];
   livekitUrl: string;
@@ -59,6 +60,7 @@ export interface MeetingActions {
   sendCaption: (speakerId: string, text: string, isFinal: boolean) => void;
   submitAnswer: (roundId: string, answer: unknown) => void;
   placeMarketBet: (guess: number) => void;
+  placeFlashBet: (roundId: string, guess: number) => void;
 }
 
 export function useMeeting(): [MeetingState, MeetingActions] {
@@ -74,6 +76,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [activeRound, setActiveRound] = useState<RoomStateSnapshot['activeRound']>(null);
   const [market, setMarket] = useState<RoomStateSnapshot['market']>(null);
+  const [flash, setFlash] = useState<RoomStateSnapshot['flash']>(null);
   const [bingo, setBingo] = useState<RoomStateSnapshot['bingo']>(null);
   const [stats, setStats] = useState<RoomStateSnapshot['stats']>([]);
   const [livekitUrl, setLivekitUrl] = useState('ws://localhost:7880');
@@ -107,6 +110,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         setActiveRound(payload.activeRound);
         setLeaderboard(payload.leaderboard);
         setMarket(payload.market);
+        setFlash(payload.flash);
         setBingo(payload.bingo);
         setStats(payload.stats ?? []);
         setRecording(Boolean(payload.recording));
@@ -330,6 +334,57 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('game:market:resolved', (payload: { roundId: string; targetWord: string; actualCount: number; results: any[]; leaderboard: LeaderboardEntry[] }) => {
         setLeaderboard(payload.leaderboard);
         setMarket((prev) =>
+          prev && prev.roundId === payload.roundId
+            ? { ...prev, resolved: true, actualCount: payload.actualCount, liveCount: payload.actualCount }
+            : prev
+        );
+      })
+    );
+
+    // ── Flash WCB (random short windows) ──
+    unsubs.push(
+      ws.on('game:flash:open', (payload: { roundId: string; targetWord: string; windowMs: number; startedAt: string; endsAt: string }) => {
+        setFlash({
+          roundId: payload.roundId,
+          targetWord: payload.targetWord,
+          windowMs: payload.windowMs,
+          startedAt: payload.startedAt,
+          endsAt: payload.endsAt,
+          liveCount: 0,
+          odds: {},
+          myBet: null,
+          resolved: false,
+        });
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:flash:update', (payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number>; remainingMs: number }) => {
+        setFlash((prev) =>
+          prev && prev.roundId === payload.roundId
+            ? { ...prev, liveCount: payload.liveCount, odds: payload.odds, endsAt: new Date(Date.now() + payload.remainingMs).toISOString() }
+            : prev
+        );
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:flash:bet', (payload: { roundId: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number }) => {
+        setFlash((prev) => {
+          if (!prev || prev.roundId !== payload.roundId) return prev;
+          const myBet =
+            payload.participantId === participantId
+              ? { guess: payload.guess, lockedOdds: payload.lockedOdds }
+              : prev.myBet;
+          return { ...prev, myBet, liveCount: payload.liveCount };
+        });
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:flash:resolved', (payload: { roundId: string; targetWord: string; windowMs: number; actualCount: number; results: any[]; leaderboard: LeaderboardEntry[] }) => {
+        setLeaderboard(payload.leaderboard);
+        setFlash((prev) =>
           prev && prev.roundId === payload.roundId
             ? { ...prev, resolved: true, actualCount: payload.actualCount, liveCount: payload.actualCount }
             : prev
@@ -806,6 +861,17 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     }
   }, [ws, market]);
 
+  const placeFlashBet = useCallback((roundId: string, guess: number) => {
+    setFlash((prev) => {
+      if (prev && prev.roundId === roundId && !prev.resolved && !prev.myBet) {
+        // optimistic local lock; server confirms via game:flash:bet
+        return { ...prev, myBet: { guess, lockedOdds: 1 } };
+      }
+      return prev;
+    });
+    ws.send('game:submit', { roundId, answer: { guess } });
+  }, [ws]);
+
   const state: MeetingState = {
     room,
     participants,
@@ -822,6 +888,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     leaderboard,
     activeRound,
     market,
+    flash,
     bingo,
     stats,
     livekitUrl,
@@ -852,6 +919,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       sendCaption,
       submitAnswer,
       placeMarketBet,
+      placeFlashBet,
     }),
     [
       createAndJoin,
@@ -872,6 +940,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       sendCaption,
       submitAnswer,
       placeMarketBet,
+      placeFlashBet,
     ]
   );
 

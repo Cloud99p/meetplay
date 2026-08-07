@@ -94,6 +94,35 @@ console.log('bingo mark (guest):', guestBingoMark ? `indices=${guestBingoMark.pa
 const statsUpd = host.events.find((e) => e.type === 'stats:update');
 console.log('stats update:', statsUpd ? `${statsUpd.payload.stats.length} speakers, top fillers=${statsUpd.payload.stats[0]?.fillers}` : 'NONE');
 
+// ── Flash WCB: waits for a random window, then bets on it ──
+console.log('waiting for flash WCB window (up to 75s)...');
+let flashOpen = null;
+for (let i = 0; i < 75; i++) {
+  flashOpen = host.events.find((e) => e.type === 'game:flash:open');
+  if (flashOpen) break;
+  await new Promise((r) => setTimeout(r, 1000));
+}
+if (flashOpen) {
+  console.log('flash open:', `${flashOpen.payload.targetWord} window=${Math.round(flashOpen.payload.windowMs / 1000)}s ends=${flashOpen.payload.endsAt}`);
+  // Guest bets during the flash window
+  guest.ws.send(JSON.stringify({ type: 'game:submit', payload: { roundId: flashOpen.payload.roundId, answer: { guess: 8 } } }));
+  await new Promise((r) => setTimeout(r, 800));
+  const flashBet = host.events.find((e) => e.type === 'game:flash:bet');
+  console.log('flash bet:', flashBet ? `guest guessed ${flashBet.payload.guess} @ x${flashBet.payload.lockedOdds}` : 'NONE');
+  const flashUpd = host.events.find((e) => e.type === 'game:flash:update');
+  console.log('flash update:', flashUpd ? `count=${flashUpd.payload.liveCount} remainingMs=${flashUpd.payload.remainingMs}` : 'NONE');
+  // Wait for the window to resolve (up to 150s)
+  console.log('waiting for flash resolution...');
+  for (let i = 0; i < 150; i++) {
+    if (host.events.some((e) => e.type === 'game:flash:resolved')) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  const flashResolved = host.events.find((e) => e.type === 'game:flash:resolved');
+  console.log('flash resolved:', flashResolved ? `count=${flashResolved.payload.actualCount} results=${flashResolved.payload.results.length}` : 'NONE');
+} else {
+  console.log('flash WCB: NO OPEN EVENT within 75s');
+}
+
 // Guest places a market bet
 if (marketUpdate) {
   guest.ws.send(JSON.stringify({ type: 'game:submit', payload: { roundId: marketUpdate.payload.roundId, answer: { guess: 12 } } }));
@@ -114,6 +143,8 @@ const quizRound = quiz.gameRounds?.find((r) => r.gameType === 'recap_quiz');
 console.log('recap quiz round:', quizRound ? `${quizRound.roundData.questions.length} questions` : 'NONE');
 const wcbRound = quiz.gameRounds?.find((r) => r.gameType === 'word_count_bet');
 console.log('wcb round in recap:', wcbRound ? `actualCount=${wcbRound.roundData.actualCount}` : 'NONE');
+const flashRound = quiz.gameRounds?.find((r) => r.gameType === 'flash_wcb');
+console.log('flash round in recap:', flashRound ? `${flashRound.roundData.targetWord} actualCount=${flashRound.roundData.actualCount}` : 'NONE');
 
 host.ws.close(); guest.ws.close();
 console.log('SMOKE DONE');
