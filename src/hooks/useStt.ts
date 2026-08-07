@@ -47,13 +47,20 @@ export function useStt({ enabled, connected, localParticipantId, sendCaption }: 
   }, []);
 
   useEffect(() => {
-    if (enabled && connected) {
+    // Start the adapter when transcription is enabled. Deliberately do NOT
+    // tear it down when `connected` flickers (room WS reconnect, Railway
+    // restart, etc.): the adapter has its own reconnect/backoff, and stopping
+    // it mid-handshake makes the browser throw "WebSocket is closed before
+    // the connection is established". Captions queue locally while the room
+    // WS is down and flush on reconnect (sendCaption handles that).
+    if (enabled) {
       startAdapter();
     } else {
       stopAdapter();
     }
     return () => stopAdapter();
-  }, [enabled, connected, startAdapter, stopAdapter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, startAdapter, stopAdapter]);
 
   return { sttEnabled, paused: enabled && !connected };
 }

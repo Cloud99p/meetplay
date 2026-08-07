@@ -45,10 +45,22 @@ export class DeepgramAdapter implements STTAdapter {
     this.teardownMedia();
     if (this.ws) {
       try {
-        if (this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'CloseStream' }));
+        const ws = this.ws;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'CloseStream' }));
+          ws.close();
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          // Browser throws "WebSocket is closed before the connection is
+          // established" if you close() a socket still in the handshake.
+          // Detach handlers and drop references instead — no reconnect is
+          // scheduled because this.stopped is already true.
+          ws.onopen = null;
+          ws.onmessage = null;
+          ws.onerror = null;
+          ws.onclose = null;
+        } else {
+          ws.close();
         }
-        this.ws.close();
       } catch {
         /* ignore */
       }
@@ -79,6 +91,15 @@ export class DeepgramAdapter implements STTAdapter {
     }
 
     this.ws.onopen = () => {
+      // Guard: stop() may have run while the handshake was in flight.
+      if (this.stopped || !this.ws) {
+        try {
+          this.ws?.close();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       this.reconnectAttempts = 0;
       // Tell the server which Deepgram config to use. The server holds the key.
       this.ws?.send(
