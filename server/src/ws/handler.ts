@@ -117,7 +117,14 @@ function scheduleHostPromotion(roomId: string, hostId: string) {
       if (!room || room.state !== 'active') return;
 
       const participants = await getParticipantsByRoom(roomId);
-      const candidate = participants.find((p: any) => p.id !== hostId);
+      // Only promote a participant who is actually CONNECTED right now.
+      // The old code picked the first non-host row regardless of connection
+      // state, which could promote a stale/disconnected row and permanently
+      // demote the real host (who is often just briefly disconnected during
+      // a deploy/refresh). If no one connected is available, keep the host.
+      const candidate = participants.find(
+        (p: any) => p.id !== hostId && isConnected(roomId, p.id)
+      );
       if (!candidate) return;
 
       await promoteToHost(candidate.id);
@@ -469,5 +476,10 @@ async function handleMessage(
 
 async function checkIsHost(roomId: string, participantId: string): Promise<boolean> {
   const p = await getParticipantById(participantId);
-  return Boolean(p?.is_host && p.room_id === roomId);
+  if (!p || p.room_id !== roomId) return false;
+  if (p.is_host) return true;
+  // Fall back to the room's recorded host pointer: the is_host flag can
+  // drift (promotion races), but host_participant_id is the source of truth.
+  const room = await getRoomById(roomId);
+  return room?.host_participant_id === participantId;
 }

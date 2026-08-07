@@ -9,6 +9,7 @@ import {
   getChatMessages,
   updateRoom,
   setRoomHost,
+  promoteToHost,
 } from '../db/queries.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
@@ -139,6 +140,18 @@ export async function roomsRoutes(app: FastifyInstance) {
         // Keep the existing name (the user may have changed it on the form;
         // but their original identity is what other participants know them by)
         name = participant.name;
+        // HOST HEAL: if this row is the room's designated host but the is_host
+        // flag drifted to false (e.g. a promotion race picked a stale row and
+        // demoted the real host), re-assert host powers on rejoin. promoteToHost
+        // demotes everyone else and points the room back at this row.
+        const roomRow = await getRoomById(id);
+        if (roomRow?.host_participant_id === participant.id && !participant.is_host) {
+          try {
+            participant = (await promoteToHost(participant.id)) ?? participant;
+          } catch {
+            /* ignore */
+          }
+        }
       }
     }
     if (!participant) {
@@ -218,7 +231,13 @@ export async function roomsRoutes(app: FastifyInstance) {
     if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
 
     const participant = await getParticipantById(payload.participantId);
-    if (!participant || !participant.is_host) {
+    if (!participant || participant.room_id !== id) {
+      return reply.code(403).send({ error: 'Host only' });
+    }
+    // Authoritative host check: the is_host flag can drift (promotion races),
+    // so also accept the room's recorded host pointer.
+    const roomRow = await getRoomById(id);
+    if (!participant.is_host && roomRow?.host_participant_id !== participant.id) {
       return reply.code(403).send({ error: 'Host only' });
     }
 
