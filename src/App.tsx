@@ -114,6 +114,14 @@ function MeetingRoute({
     return <Navigate to="/" replace />;
   }
 
+  // Meeting ended (host ended it): bounce to the landing page WITHOUT
+  // rendering MeetingRoom — its video hooks (useTracks, useRemoteParticipants)
+  // require a RoomContext, and liveKitRoom is already null here, so rendering
+  // it would throw "No room provided" and blank the whole app.
+  if (state.room?.state === 'ended') {
+    return <Navigate to="/" replace />;
+  }
+
   return (
     <RoomContext.Provider value={state.liveKitRoom ?? undefined}>
       <MeetingRoom state={state} actions={actions} onLeave={onLeave} />

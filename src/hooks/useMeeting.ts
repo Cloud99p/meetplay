@@ -140,11 +140,18 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     unsubs.push(
       ws.on('participant:removed', (payload: { targetId: string }) => {
         if (payload.targetId === participantId) {
-          // I was removed
+          // I was removed by the host — same as leaving: no reconnect,
+          // drop LiveKit cleanly so no zombie connection survives.
+          intentionallyLeftRef.current = true;
+          reconnectInFlightRef.current = false;
           ws.disconnect();
+          liveKitRoom?.disconnect();
           setRoom(null);
           setParticipants([]);
           setLiveKitRoom(null);
+          setLiveKitConnected(false);
+          setLiveKitReconnecting(false);
+          setLivekitError(null);
           api.clearRoomToken();
         } else {
           setParticipants((prev) => prev.filter((p) => p.id !== payload.targetId));
@@ -199,11 +206,19 @@ export function useMeeting(): [MeetingState, MeetingActions] {
 
     unsubs.push(
       ws.on('room:ended', () => {
+        // Meeting is over for EVERYONE (host ended). Kill the LiveKit retry
+        // logic BEFORE disconnecting — otherwise the Disconnected event fires
+        // and the reconnect path resurrects a zombie connection to a dying
+        // room (re-joining + re-publishing media on the landing page).
+        intentionallyLeftRef.current = true;
+        reconnectInFlightRef.current = false;
         setRoom((prev) => prev ? { ...prev, state: 'ended' } : prev);
         ws.disconnect();
         liveKitRoom?.disconnect();
         setLiveKitRoom(null);
         setLiveKitConnected(false);
+        setLiveKitReconnecting(false);
+        setLivekitError(null);
       })
     );
 
@@ -298,7 +313,12 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         },
       ).then((result) => {
         reconnectInFlightRef.current = false;
-        if (intentionallyLeftRef.current) return;
+        if (intentionallyLeftRef.current) {
+          // Meeting ended while a reconnect was in flight — drop the new
+          // connection instead of restoring a zombie room.
+          result?.room?.disconnect();
+          return;
+        }
         if (result && !result.error) {
           console.log('[meeting] LiveKit reconnected');
           setLiveKitRoom(result.room);
@@ -563,6 +583,10 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const endMeeting = useCallback(() => {
     const token = api.getRoomToken();
     const roomId = roomIdRef.current;
+    // End is final: never auto-reconnect, even if the broadcast is delayed
+    // and the server-side room deletion races our disconnect.
+    intentionallyLeftRef.current = true;
+    reconnectInFlightRef.current = false;
     ws.send('room:end', {});
     if (token && roomId) {
       api
