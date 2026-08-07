@@ -52,7 +52,7 @@ function isConnected(roomId: string, participantId: string): boolean {
   return activeConnections.get(roomId)?.has(participantId) ?? false;
 }
 
-async function sendRoomState(roomId: string, ws: WebSocket) {
+async function sendRoomState(roomId: string, ws: WebSocket, participantId?: string) {
   try {
     const room = await getRoomById(roomId);
     if (!room) return;
@@ -60,6 +60,13 @@ async function sendRoomState(roomId: string, ws: WebSocket) {
     const engine = getGameEngine(roomId);
     const activeRound = await engine.getActiveRoundSnapshot();
     const leaderboard = await engine.buildLeaderboard();
+    const market = engine.getMarketSnapshot();
+    if (market && participantId) {
+      const bet = engine.market?.bets.get(participantId);
+      market.myBet = bet ? { guess: bet.guess, lockedOdds: bet.lockedOdds } : null;
+    }
+    const bingo = participantId ? engine.getBingoSnapshot(participantId) : null;
+    const stats = engine.getStatsSnapshot();
 
     const msg: ServerMessage = {
       type: 'room:state',
@@ -76,6 +83,9 @@ async function sendRoomState(roomId: string, ws: WebSocket) {
         recording: isRecording(roomId),
         activeRound,
         leaderboard,
+        market,
+        bingo,
+        stats,
       },
     };
     ws.send(encode(msg));
@@ -158,8 +168,13 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
   channelManager.join(roomId, participantId, participant.name, socket);
   registerConnection(roomId, participantId);
 
+  // Start the always-on passive games (Word Count market + bingo) —
+  // idempotent, so late joiners / reconnects are safe.
+  const room = await getRoomById(roomId);
+  await getGameEngine(roomId).startPassiveGames(room?.name ?? null);
+
   // Send current state snapshot (for reconnect resync / late joiners)
-  await sendRoomState(roomId, socket);
+  await sendRoomState(roomId, socket, participantId);
 
   socket.on('message', async (raw) => {
     const data = raw.toString();
@@ -302,7 +317,7 @@ async function handleMessage(
       const roundId = String(payload.roundId ?? '');
       if (!roundId) return;
       const engine = getGameEngine(roomId);
-      await engine.submitAnswer(roundId, senderId, payload.answer);
+      await engine.submitAnswer(roundId, senderId, sender.name, payload.answer);
       break;
     }
 

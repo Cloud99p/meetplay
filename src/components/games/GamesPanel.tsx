@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { LuGamepad2, LuTrophy } from 'react-icons/lu';
-import type { GameRound, LeaderboardEntry } from '../../types/games';
+import type { GameRound, LeaderboardEntry, RoomStateSnapshot } from '../../types/games';
 import { getGameTypeLabel, isGameType } from '../../lib/games/engine';
 import WhoSaidThat from './WhoSaidThat';
 import MeetingScrabble from './MeetingScrabble';
-import WordCountBet from './WordCountBet';
+import WordCountMarket from './WordCountMarket';
+import BingoCard from './BingoCard';
+import StatsPanel from './StatsPanel';
 
 interface Props {
   activeRound: GameRound | null;
@@ -14,10 +16,28 @@ interface Props {
   transcriptionEnabled: boolean;
   /** Quiet mode: host presenting / screen-sharing — notifications suspended. */
   quiet?: boolean;
+  /** Always-on games (Layer A) */
+  market: RoomStateSnapshot['market'];
+  bingo: RoomStateSnapshot['bingo'];
+  stats: RoomStateSnapshot['stats'];
+  onMarketBet: (guess: number) => void;
 }
 
-export default function GamesPanel({ activeRound, leaderboard, onSubmit, participantId, transcriptionEnabled, quiet }: Props) {
-  const [tab, setTab] = useState<'game' | 'board'>('game');
+type Tab = 'game' | 'board' | 'stats';
+
+export default function GamesPanel({
+  activeRound,
+  leaderboard,
+  onSubmit,
+  participantId,
+  transcriptionEnabled,
+  quiet,
+  market,
+  bingo,
+  stats,
+  onMarketBet,
+}: Props) {
+  const [tab, setTab] = useState<Tab>('game');
 
   return (
     <div className="flex flex-col h-full">
@@ -36,7 +56,7 @@ export default function GamesPanel({ activeRound, leaderboard, onSubmit, partici
             onClick={() => setTab('game')}
             className={`px-2.5 py-1 text-xs rounded-md transition-colors cursor-pointer ${tab === 'game' ? 'bg-primary/20 text-primary' : 'text-muted hover:text-foreground'}`}
           >
-            Round
+            Games
           </button>
           <button
             onClick={() => setTab('board')}
@@ -44,14 +64,44 @@ export default function GamesPanel({ activeRound, leaderboard, onSubmit, partici
           >
             Leaderboard
           </button>
+          <button
+            onClick={() => setTab('stats')}
+            className={`px-2.5 py-1 text-xs rounded-md transition-colors cursor-pointer ${tab === 'stats' ? 'bg-primary/20 text-primary' : 'text-muted hover:text-foreground'}`}
+          >
+            Stats
+          </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {tab === 'game' ? (
-          <ActiveRoundView activeRound={activeRound} onSubmit={onSubmit} />
-        ) : (
+        {tab === 'game' && (
+          <div className="flex flex-col">
+            {/* Always-on market (Layer A) */}
+            {market && (
+              <WordCountMarket market={market} onBet={onMarketBet} quiet={quiet} />
+            )}
+            {/* Always-on bingo (Layer A) */}
+            {bingo && (
+              <BingoCard bingo={bingo} participantId={participantId} quiet={quiet} />
+            )}
+            {/* Active quick round (Layer B), if any */}
+            <ActiveRoundView activeRound={activeRound} onSubmit={onSubmit} />
+            {!market && !bingo && !activeRound && (
+              <div className="p-4 text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center mx-auto">
+                  <LuGamepad2 className="w-6 h-6 text-primary" />
+                </div>
+                <p className="text-sm text-foreground">No games yet</p>
+                <p className="text-xs text-muted">Games start as the conversation flows. Keep talking!</p>
+              </div>
+            )}
+          </div>
+        )}
+        {tab === 'board' && (
           <LeaderboardView leaderboard={leaderboard} participantId={participantId} />
+        )}
+        {tab === 'stats' && (
+          <StatsPanel stats={stats} participantId={participantId} quiet={quiet} />
         )}
       </div>
     </div>
@@ -65,24 +115,14 @@ function ActiveRoundView({
   activeRound: GameRound | null;
   onSubmit: (answer: unknown) => void;
 }) {
-  if (!activeRound) {
-    return (
-      <div className="p-4 text-center space-y-2">
-        <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center mx-auto">
-          <LuGamepad2 className="w-6 h-6 text-primary" />
-        </div>
-        <p className="text-sm text-foreground">No active round</p>
-        <p className="text-xs text-muted">Rounds start automatically as the conversation flows. Keep talking!</p>
-      </div>
-    );
-  }
+  if (!activeRound) return null;
 
   const { gameType, state, roundData, id, timeLimit, startedAt } = activeRound;
   const round: GameRound = { id, gameType, state, roundData, timeLimit, startedAt };
 
   if (state === 'scored') {
     return (
-      <div className="p-4 text-center space-y-3">
+      <div className="p-4 text-center space-y-3 border-b border-border">
         <div className="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center mx-auto">
           <LuTrophy className="w-7 h-7 text-success" />
         </div>
@@ -95,15 +135,12 @@ function ActiveRoundView({
   }
 
   if (gameType === 'who_said_that') {
-    return <WhoSaidThat round={round} onSubmit={onSubmit} />;
+    return <div className="border-b border-border"><WhoSaidThat round={round} onSubmit={onSubmit} /></div>;
   }
   if (gameType === 'scrabble') {
-    return <MeetingScrabble round={round} onSubmit={onSubmit} />;
+    return <div className="border-b border-border"><MeetingScrabble round={round} onSubmit={onSubmit} /></div>;
   }
-  if (gameType === 'word_count_bet') {
-    return <WordCountBet round={round} onSubmit={onSubmit} />;
-  }
-  return <p className="p-4 text-xs text-muted">Unknown game: {gameType}</p>;
+  return null;
 }
 
 function LeaderboardView({ leaderboard, participantId }: { leaderboard: LeaderboardEntry[]; participantId: string | null }) {

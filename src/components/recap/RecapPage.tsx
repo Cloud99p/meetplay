@@ -15,6 +15,8 @@ const GAME_LABELS: Record<string, string> = {
   who_said_that: 'Who Said That?',
   scrabble: 'Meeting Scrabble',
   word_count_bet: 'Word Count Bet',
+  bingo: 'Buzzword Bingo',
+  recap_quiz: 'Recap Quiz',
 };
 
 export default function RecapPage({ roomId, onBack }: Props) {
@@ -87,6 +89,9 @@ export default function RecapPage({ roomId, onBack }: Props) {
 
   const leaderboard = recap.leaderboard ?? [];
   const keyQuotes = recap.keyQuotes ?? [];
+  const quizRound = recap.gameRounds.find((r) => r.gameType === 'recap_quiz');
+  const gameRounds = recap.gameRounds.filter((r) => r.gameType !== 'recap_quiz');
+  const quizQuestions = (quizRound?.roundData as any)?.questions;
 
   return (
     <div className="min-h-screen bg-bg-base print:bg-white">
@@ -144,7 +149,12 @@ export default function RecapPage({ roomId, onBack }: Props) {
           </div>
         </div>
 
-        {/* 1. Meeting info: participants with join times */}
+        {/* 1.5. Recap quiz — did you actually listen? */}
+        {quizQuestions && quizQuestions.length > 0 && (
+          <QuizSection questions={quizQuestions} />
+        )}
+
+        {/* 2. Meeting info: participants with join times */}
         <section>
           <h2 className="text-sm font-heading font-semibold text-foreground mb-3 flex items-center gap-2">
             <FiUsers className="w-4 h-4 text-primary" /> Participants
@@ -205,13 +215,13 @@ export default function RecapPage({ roomId, onBack }: Props) {
         </section>
 
         {/* 3. Game winners */}
+        {gameRounds.length > 0 && (
         <section>
           <h2 className="text-sm font-heading font-semibold text-foreground mb-3 flex items-center gap-2">
             <FiAward className="w-4 h-4 text-accent" /> Game Rounds
           </h2>
-          {recap.gameRounds.length > 0 ? (
-            <div className="space-y-3">
-              {recap.gameRounds.map((round) => {
+          <div className="space-y-3">
+              {gameRounds.map((round) => {
                 const winner = roundWinner(round.submissions);
                 return (
                   <div key={round.id} className="bg-bg-surface border border-border rounded-xl p-4">
@@ -239,6 +249,11 @@ export default function RecapPage({ roomId, onBack }: Props) {
                         )}
                       </p>
                     )}
+                    {round.gameType === 'bingo' && (
+                      <p className="text-xs text-muted mb-2">
+                        Round {String((round.roundData as any)?.roundNumber ?? '')} — first complete line wins.
+                      </p>
+                    )}
                     {/* Submissions */}
                     {round.submissions && round.submissions.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
@@ -263,13 +278,8 @@ export default function RecapPage({ roomId, onBack }: Props) {
                 );
               })}
             </div>
-          ) : (
-            <div className="bg-bg-surface border border-border rounded-xl p-6 text-center">
-              <FiAward className="w-8 h-8 text-muted/40 mx-auto mb-2" />
-              <p className="text-sm text-muted">No game rounds were played.</p>
-            </div>
-          )}
-        </section>
+          </section>
+        )}
 
         {/* 4. Leaderboard */}
         {leaderboard.length > 0 && (
@@ -313,5 +323,107 @@ export default function RecapPage({ roomId, onBack }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+interface QuizQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+/**
+ * "Did you actually listen?" — auto-generated from the transcript.
+ * Zero in-call distraction: it only exists on the recap page.
+ */
+function QuizSection({ questions }: { questions: QuizQuestion[] }) {
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [revealed, setRevealed] = useState(false);
+
+  const answered = Object.keys(answers).length;
+  const score = questions.reduce(
+    (acc, q) => (answers[q.id] === q.correctIndex ? acc + 1 : acc),
+    0
+  );
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-heading font-semibold text-foreground flex items-center gap-2">
+          <FiMessageCircle className="w-4 h-4 text-secondary" /> Did you actually listen?
+        </h2>
+        {answered > 0 && (
+          <span className="text-xs text-muted">{answered}/{questions.length} answered</span>
+        )}
+      </div>
+
+      <div className="bg-bg-surface border border-border rounded-xl p-4 space-y-5">
+        {questions.map((q, qi) => {
+          const chosen = answers[q.id];
+          const correct = chosen === q.correctIndex;
+          const done = chosen !== undefined;
+          return (
+            <div key={q.id}>
+              <p className="text-sm font-medium text-foreground mb-2">
+                <span className="text-primary font-mono mr-1.5">{qi + 1}.</span>
+                {q.prompt}
+              </p>
+              <div className="space-y-1.5">
+                {q.options.map((opt, oi) => {
+                  const isCorrect = oi === q.correctIndex;
+                  const isChosen = chosen === oi;
+                  let cls = 'bg-bg-elevated border-border text-foreground hover:bg-border/50';
+                  if (done && isCorrect) cls = 'bg-success/15 border-success/50 text-success';
+                  else if (done && isChosen && !isCorrect) cls = 'bg-destructive/15 border-destructive/50 text-destructive';
+                  return (
+                    <button
+                      key={oi}
+                      disabled={done}
+                      onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: oi }))}
+                      className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-colors cursor-pointer disabled:cursor-default ${cls}`}
+                    >
+                      <span className="font-mono mr-1.5">{String.fromCharCode(65 + oi)}</span>
+                      {opt}
+                      {done && isCorrect && <FiCheck className="inline w-3.5 h-3.5 ml-1.5" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {done && (
+                <p className={`text-[11px] mt-1.5 ${correct ? 'text-success' : 'text-muted'}`}>
+                  {correct ? '✓ Correct — ' : '✗ '}
+                  {q.explanation}
+                </p>
+              )}
+            </div>
+          );
+        })}
+
+        {answered === questions.length && !revealed && (
+          <button
+            onClick={() => setRevealed(true)}
+            className="w-full py-2.5 bg-primary hover:bg-primary-hover text-on-primary font-medium rounded-lg transition-colors cursor-pointer text-sm"
+          >
+            Reveal my score
+          </button>
+        )}
+        {revealed && (
+          <div className="text-center py-3 bg-bg-elevated border border-border rounded-lg">
+            <p className="text-2xl font-heading font-bold text-primary">
+              {score}/{questions.length}
+            </p>
+            <p className="text-xs text-muted mt-1">
+              {score === questions.length
+                ? 'Perfect — you were locked in! 🎯'
+                : score >= questions.length / 2
+                  ? 'Solid listening — half or better!'
+                  : 'Multi-tasking much? 😄'}
+            </p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

@@ -334,6 +334,10 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                   participantId={state.participantId}
                   transcriptionEnabled={state.transcriptionEnabled}
                   quiet={state.gameQuiet}
+                  market={state.market}
+                  bingo={state.bingo}
+                  stats={state.stats}
+                  onMarketBet={(guess) => actions.placeMarketBet(guess)}
                 />
               );
             })()}

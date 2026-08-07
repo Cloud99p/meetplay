@@ -58,6 +58,14 @@ export type ServerMessage =
   | { type: 'game:round:open'; payload: { roundId: string; gameType: string; question: unknown; timeLimit: number } }
   | { type: 'game:round:locked'; payload: { roundId: string } }
   | { type: 'game:round:scored'; payload: { roundId: string; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
+  | { type: 'game:market:open'; payload: { roundId: string; targetWord: string; startedAt: string } }
+  | { type: 'game:market:update'; payload: { roundId: string; targetWord: string; liveCount: number; odds: Record<string, number> } }
+  | { type: 'game:market:bet'; payload: { roundId: string; participantId: string; participantName: string; guess: number; lockedOdds: number; liveCount: number } }
+  | { type: 'game:market:resolved'; payload: { roundId: string; targetWord: string; actualCount: number; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
+  | { type: 'bingo:open'; payload: { roundId: string; roundNumber: number } }
+  | { type: 'bingo:mark'; payload: { roundId: string; indices: number[] } }
+  | { type: 'bingo:win'; payload: { roundId: string; roundNumber: number; participantId: string; participantName: string; lineType: string } }
+  | { type: 'stats:update'; payload: { stats: SpeakerStatRow[] } }
   | { type: 'participant:joined'; payload: { id: string; name: string } }
   | { type: 'participant:left'; payload: { id: string } }
   | { type: 'participant:muted'; payload: { targetId: string; isMuted: boolean } }
@@ -71,6 +79,34 @@ export type ServerMessage =
   | { type: 'host:promoted'; payload: { participantId: string } }
   | { type: 'transcript:toggled'; payload: { enabled: boolean } }
   | { type: 'room:state'; payload: RoomStateSnapshot };
+
+export interface SpeakerStatRow {
+  participantId: string;
+  participantName: string;
+  words: number;
+  utterances: number;
+  fillers: number;
+  shareOfVoice: number;
+}
+
+export interface MarketSnapshot {
+  roundId: string;
+  targetWord: string;
+  startedAt: string;
+  liveCount: number;
+  odds: Record<string, number>;
+  myBet: { guess: number; lockedOdds: number } | null;
+  resolved: boolean;
+  actualCount?: number;
+}
+
+export interface BingoSapshot {
+  roundId: string;
+  roundNumber: number;
+  myCard: string[];
+  myMarks: number[];
+  winner: { participantId: string; participantName: string } | null;
+}
 
 export interface RoomStateSnapshot {
   participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
@@ -86,6 +122,9 @@ export interface RoomStateSnapshot {
     startedAt: string;
   } | null;
   leaderboard: LeaderboardEntry[];
+  market: MarketSnapshot | null;
+  bingo: BingoSapshot | null;
+  stats: SpeakerStatRow[];
 }
 
 export interface LeaderboardEntry {

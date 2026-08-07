@@ -47,4 +47,29 @@ export interface RoomStateSnapshot {
     startedAt: string;
   } | null;
   leaderboard: LeaderboardEntry[];
+  market: {
+    roundId: string;
+    targetWord: string;
+    startedAt: string;
+    liveCount: number;
+    odds: Record<string, number>;
+    myBet: { guess: number; lockedOdds: number } | null;
+    resolved: boolean;
+    actualCount?: number;
+  } | null;
+  bingo: {
+    roundId: string;
+    roundNumber: number;
+    myCard: string[];
+    myMarks: number[];
+    winner: { participantId: string; participantName: string } | null;
+  } | null;
+  stats: Array<{
+    participantId: string;
+    participantName: string;
+    words: number;
+    utterances: number;
+    fillers: number;
+    shareOfVoice: number;
+  }>;
 }
