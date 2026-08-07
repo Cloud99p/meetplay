@@ -89,13 +89,19 @@ function createRoom(): Room {
     publishDefaults: {
       videoCodec: pickVideoCodec(),
       backupCodec: { codec: 'vp8' },
-      // Lower layers used with the VP8 fallback (VP9/AV1 SVC derive their own
-      // spatial layers, so this is ignored there). h720 top layer keeps video
-      // crisp on large tiles instead of capping at 540p.
-      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360, VideoPresets.h720],
-      // Default encoding when simulcast isn't negotiated (non-SVC codec path):
-      // 1280x720@30fps @ 2.5 Mbps so the single-layer case is sharp too.
-      videoEncoding: VideoPresets.h720.encoding,
+      // Simulcast ladder: h180/h360 for small tiles, h720 for medium, h1080
+      // top layer so capable viewers get full 1080p (1920x1080@30fps 3Mbps).
+      // adaptiveStream picks the right layer per viewer; dynacast stops
+      // layers nobody is watching. VP9/AV1 SVC derive their own spatial
+      // layers and ignore this list (full-res top automatically).
+      videoSimulcastLayers: [
+        VideoPresets.h180,
+        VideoPresets.h360,
+        VideoPresets.h720,
+        VideoPresets.h1080,
+      ],
+      // Default encoding when simulcast isn't negotiated: full 1080p.
+      videoEncoding: VideoPresets.h1080.encoding,
       degradationPreference: 'maintain-resolution',
       // Screen share: default is 1080p @ 3 Mbps; bump to 4 Mbps so text and
       // slides stay crisp when presenting.
