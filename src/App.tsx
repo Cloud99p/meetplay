@@ -24,11 +24,10 @@ function AppRoutes() {
   const [state, actions] = useMeeting();
   const navigate = useNavigate();
 
-  // When the meeting ends (host ends), everyone lands back on the
-  // create/join page — host and kicked members alike.
+  // When the meeting ends (host ends), go to recap
   useEffect(() => {
     if (state.room?.state === 'ended' && state.room.id) {
-      navigate('/');
+      navigate(`/recap/${state.room.id}`);
     }
   }, [state.room?.state, state.room?.id, navigate]);
 
