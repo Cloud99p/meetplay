@@ -5,7 +5,7 @@ CREATE TABLE rooms (
   name TEXT,
   password_hash TEXT,
   host_participant_id UUID,
-  transcription_enabled BOOLEAN DEFAULT false,
+  transcription_enabled BOOLEAN DEFAULT true,
   state TEXT DEFAULT 'active',
   created_at TIMESTAMPTZ DEFAULT now(),
   ended_at TIMESTAMPTZ

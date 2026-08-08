@@ -87,7 +87,7 @@ export async function createRoom(opts: { name?: string; passwordHash?: string })
     name: opts.name ?? null,
     password_hash: opts.passwordHash ?? null,
     host_participant_id: null,
-    transcription_enabled: false,
+    transcription_enabled: true,
     state: 'active',
     created_at: nowISO(),
     ended_at: null,
