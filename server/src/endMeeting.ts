@@ -3,6 +3,7 @@ import { getGameEngine, destroyGameEngine } from './games/engine.js';
 import { deleteLiveKitRoom } from './livekit/moderation.js';
 import { stopRecordingForRoomEnd } from './livekit/recording.js';
 import { channelManager } from './ws/channels.js';
+import { omniClient } from './intelligence/omniClient.js';
 
 /**
  * Hard-end a meeting (host power). This is the single source of truth for
@@ -31,6 +32,10 @@ export async function endMeetingRoom(roomId: string): Promise<void> {
   await engine.resolveUserMarkets();
   await engine.saveRecapQuiz();
   await deleteTranscriptEvents(roomId);
+  // Purge this meeting's nodes from the Omnilearn graph (privacy). Best-effort
+  // and non-blocking: it must never delay room teardown.
+  omniClient.flushRoom(roomId).catch(() => {});
+  omniClient.deleteMeeting(roomId).catch(() => {});
   destroyGameEngine(roomId);
   // Finalize any live recording before the room is deleted (egress needs the
   // room alive to finish writing the file).

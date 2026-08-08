@@ -11,6 +11,7 @@ import {
 import { updateSpeakerStats, buildStatRows, type SpeakerStats } from './stats.js';
 import { buildQuizQuestions, type QuizQuestion } from './quiz.js';
 import type { UtteranceInfo } from './qualityGate.js';
+import { omniClient } from '../intelligence/omniClient.js';
 
 const ROUND_TIME_LIMITS: Record<string, number> = {
   who_said_that: 30,
@@ -1042,8 +1043,11 @@ export class RoomGameEngine {
       const participants = await db.getParticipantsByRoom(this.roomId);
       if (!room) return;
       const durationSec = Math.max(0, Math.floor((Date.now() - new Date(room.created_at).getTime()) / 1000));
+      // Draw the quiz from the graph-augmented pool so recap covers the whole
+      // transcript, not just the bounded in-memory buffer.
+      const augmented = await this.getGraphAugmentedPool();
       const questions: QuizQuestion[] = buildQuizQuestions({
-        utterances: this.buffer,
+        utterances: augmented,
         participants: participants.map((p: any) => ({ id: p.id, name: p.name })),
         durationSec,
         marketTargetWord: this.market?.targetWord,
@@ -1066,6 +1070,41 @@ export class RoomGameEngine {
   // Quick rounds (Layer B) — unchanged behavior, WCB removed
   // ──────────────────────────────────────────────────────────────
 
+  /**
+   * Augmented utterance pool for recap/quiz generation: the full Omnilearn
+   * graph for this meeting PLUS the live in-memory buffer. Lets recap draw on
+   * the entire transcript, not just the tail of the bounded local buffer.
+   */
+  private async getGraphAugmentedPool(): Promise<UtteranceInfo[]> {
+    try {
+      const graph = await this.getGraphUtterances();
+      return [...graph, ...this.buffer];
+    } catch {
+      return this.buffer.slice(0);
+    }
+  }
+
+  /**
+   * Fetch this room's utterances back from the Omnilearn graph as
+   * UtteranceInfo with distinct synthetic timestamps (avoids the overlap
+   * guard in validateQuote spuriously rejecting distinct lines). Returns []
+   * on any failure (caller falls back to local).
+   */
+  private async getGraphUtterances(): Promise<UtteranceInfo[]> {
+    try {
+      const quotes = await omniClient.getQuotes(this.roomId, 60);
+      if (quotes.length === 0) return [];
+      return quotes.map((q, i) => ({
+        speakerId: q.speakerId,
+        text: q.text,
+        timestamp: Date.now() - i * 1000,
+      }));
+    } catch (e) {
+      console.error(`[engine:${this.roomId}] getGraphUtterances error:`, e);
+      return [];
+    }
+  }
+
   private maybeStartRound(): void {
     if (this.currentRound) return;
     const now = Date.now();
@@ -1087,7 +1126,15 @@ export class RoomGameEngine {
 
       switch (gameType) {
         case 'who_said_that': {
-          const result = makeWhoSaidThatRound(this.buffer, pBriefs);
+          // Prefer quotes pulled back from the Omnilearn graph (they persist
+          // even after the local buffer rolls over). Fall back through the
+          // graph+local merge to the in-memory buffer, so a graph speaker
+          // mismatch (e.g. synthetic mock ids) can never starve a round.
+          const graph = await this.getGraphUtterances();
+          const result =
+            makeWhoSaidThatRound(graph, pBriefs) ??
+            makeWhoSaidThatRound([...graph, ...this.buffer], pBriefs) ??
+            makeWhoSaidThatRound(this.buffer, pBriefs);
           if (!result) {
             // Couldn't build a round — push to next cycle
             return;

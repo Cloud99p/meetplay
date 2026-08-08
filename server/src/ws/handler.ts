@@ -23,6 +23,7 @@ import {
   removeParticipantFromLiveKit,
 } from '../livekit/moderation.js';
 import { isRecording, startRecording, stopRecording } from '../livekit/recording.js';
+import { omniClient } from '../intelligence/omniClient.js';
 
 // Track host disconnect timers: roomId -> { hostId, timer }
 const hostTimers = new Map<string, { hostId: string; timer: NodeJS.Timeout }>();
@@ -304,6 +305,8 @@ async function handleMessage(
         } catch {
           // speaker may be synthetic mock id — skip DB persistence
         }
+        // Best-effort record into the Omnilearn knowledge graph (never throws).
+        omniClient.recordUtterance(roomId, speakerId, speakerName ?? sender.name, text);
       }
 
       // Broadcast caption to all

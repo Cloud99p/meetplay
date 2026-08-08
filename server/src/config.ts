@@ -27,6 +27,9 @@ export interface ServerConfig {
   rateLimitMax: number;
   port: number;
   staticDir: string;
+  omnilearnUrl: string;
+  omnilearnApiKey: string;
+  omnilearnEnabled: boolean;
 }
 
 const env = process.env;
@@ -52,6 +55,9 @@ export function loadConfig(): ServerConfig {
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 120),
     port: Number(env.PORT ?? 3001),
     staticDir: env.STATIC_DIR ?? '',
+    omnilearnUrl: env.OMNILEARN_URL?.trim() || 'http://localhost:8080',
+    omnilearnApiKey: env.OMNILEARN_API_KEY?.trim() || '',
+    omnilearnEnabled: env.OMNILEARN_ENABLED !== '0',
   };
 }
 
