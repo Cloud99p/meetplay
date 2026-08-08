@@ -17,6 +17,7 @@ LiveKit room audio
   → Deepgram streaming STT (diarized: speaker, text, isFinal)
   → MeetPlay backend (existing transcript pipeline)
   → omniClient (server/src/intelligence/omniClient.ts)
+      → OmniLearnClient (official SDK — vendored at server/src/intelligence/omnilearn-sdk)
       → POST /api/v1/knowledge/batch   (batched ~10s per room)
   → Omnilearn V1 API → Postgres (knowledge_nodes)
   → games/recap read back:
@@ -24,10 +25,16 @@ LiveKit room audio
       → POST /api/v1/knowledge/delete   (privacy purge on meeting end)
 ```
 
+**Transport = the official `@cloud99p/omnilearn-sdk`** (v1.1.0, source vendored
+into `server/src/intelligence/omnilearn-sdk/` with a sync header). omniClient
+wraps `OmniLearnClient` — the batching / idempotency / graceful-degradation
+logic is MeetPlay-specific, the HTTP is all SDK. When the SDK is published to
+GitHub Packages, swap the vendored copy for `npm i @cloud99p/omnilearn-sdk`.
+
 Omnilearn runs as a **separate service** ("Meeting Intelligence"). MeetPlay
-never imports the brain code — it only talks HTTP. If Omnilearn is down or
-`OMNILEARN_ENABLED=0`, MeetPlay keeps working from its in-memory buffer
-(games degrade gracefully, recap just shows an empty `graph` section).
+never imports the brain code — it only talks HTTP through the SDK. If Omnilearn
+is down or `OMNILEARN_ENABLED=0`, MeetPlay keeps working from its in-memory
+buffer (games degrade gracefully, recap just shows an empty `graph` section).
 
 ---
 
@@ -140,16 +147,20 @@ filter, so there is no blanket-wipe path.
 
 ## Files touched
 
+- `server/src/intelligence/omnilearn-sdk/` — **new**: vendored `@cloud99p/omnilearn-sdk`
+  v1.1.0 source (client.ts + types.ts + index.ts, NodeNext `.js` specifiers,
+  header notes sync origin). Do not edit by hand.
 - `server/src/intelligence/omniClient.ts` — **new**: batched, idempotent,
-  fire-and-forget client (record/flush/delete/getQuotes).
+  fire-and-forget wrapper around `OmniLearnClient` (recordBatch/search/delete).
 - `server/src/ws/handler.ts` — `caption:event` → `omniClient.recordUtterance`.
 - `server/src/games/engine.ts` — Who-Said-That pool + recap quiz pool draw on
   the graph with local fallback ladder.
 - `server/src/routes/recap.ts` — recap response gains the `graph` section.
 - `server/src/endMeeting.ts` — flush + delete meeting nodes on room end.
 - `server/src/config.ts` / `.env.example` — `OMNILEARN_*` env vars.
-- `server/scripts/omni-smoke.mjs` — **new**: round-trip smoke test
-  (`node scripts/omni-smoke.mjs` — batch → search → delete → search).
+- `server/scripts/omni-smoke.mjs` — raw-API round trip (node).
+- `server/scripts/omni-smoke-sdk.ts` — **SDK** round trip via the vendored
+  client (npx tsx) — batch → search → delete → search.
 
 ---
 
