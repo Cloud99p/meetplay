@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
 import { useStt } from '../../hooks/useStt';
 import { FiAlertTriangle, FiCircle, FiLink, FiMicOff, FiUsers } from 'react-icons/fi';
@@ -46,12 +46,19 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
     sendCaption: actions.sendCaption,
   });
 
-  // Show consent banner when transcription is first enabled
+  // Show consent banner when transcription is first enabled. Dismissal is
+  // permanent for this meeting (ref, not state — otherwise the effect re-fires
+  // on every consentShown change and immediately re-shows the banner).
+  const consentDismissedRef = useRef(false);
   useEffect(() => {
-    if (state.transcriptionEnabled && !consentShown) {
+    if (state.transcriptionEnabled && !consentDismissedRef.current && !consentShown) {
       setConsentShown(true);
     }
-  }, [state.transcriptionEnabled, consentShown]);
+  }, [state.transcriptionEnabled]);
+  const handleDismissConsent = useCallback(() => {
+    consentDismissedRef.current = true;
+    setConsentShown(false);
+  }, []);
 
   const handleToggleMic = useCallback(async () => {
     if (!localParticipant) return;
@@ -134,7 +141,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
       )}
 
       {/* Consent Banner */}
-      <ConsentBanner visible={consentShown} onDismiss={() => setConsentShown(false)} />
+      <ConsentBanner visible={consentShown} onDismiss={handleDismissConsent} />
 
       {/* Screen share error banner (permissions policy in iframe previews) */}
       {screenShareError && (
