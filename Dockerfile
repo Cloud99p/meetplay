@@ -30,7 +30,7 @@ COPY . .
 # VITE_SERVER_URL=https://... (optional server override for the frontend)
 # NOTE: DEEPGRAM_API_KEY is SERVER-side (read at runtime by the /api/stt
 # proxy) — set it as a runtime env var, NOT a build arg.
-ARG VITE_STT_MODE=mock
+ARG VITE_STT_MODE=deepgram
 ARG VITE_LIVEKIT_URL=
 ARG VITE_SERVER_URL=
 ENV VITE_STT_MODE=$VITE_STT_MODE \

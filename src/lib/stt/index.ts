@@ -23,15 +23,18 @@ import type { STTAdapter } from './STTAdapter';
  * engine treats them identically.
  */
 export function createSttAdapter(localParticipantId?: string): STTAdapter {
-  const mode = (import.meta.env.VITE_STT_MODE ?? 'mock').toLowerCase();
+  const mode = (import.meta.env.VITE_STT_MODE ?? 'deepgram').toLowerCase();
 
   switch (mode) {
     case 'deepgram':
+    default:
+      // Deepgram is the production default (Live streaming + diarization via
+      // the server-side /api/stt proxy — key never ships to the browser).
+      // Only explicit VITE_STT_MODE=mock/webspeech overrides it.
       return new DeepgramAdapter();
     case 'webspeech':
       return new WebSpeechAdapter();
     case 'mock':
-    default:
       return new MockAdapter(localParticipantId);
   }
 }
