@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiMonitor, FiMessageSquare, FiUsers,
   FiLogOut, FiSmile, FiCircle,
 } from 'react-icons/fi';
 import { LuHand } from 'react-icons/lu';
-import { useLocalParticipant } from '@livekit/components-react';
+import { RoomContext } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import TranscriptToggle from './TranscriptToggle';
 
@@ -46,7 +46,11 @@ export default function ControlBar({
   showChat,
   showParticipants,
 }: Props) {
-  const { localParticipant } = useLocalParticipant();
+  // Read the LiveKit room context directly instead of useLocalParticipant:
+  // the hook THROWS "No room provided" when the context is undefined (text
+  // mode / connecting), which would crash the whole meeting.
+  const liveKitRoom = useContext(RoomContext);
+  const localParticipant = liveKitRoom?.localParticipant ?? null;
   const micPub = localParticipant?.getTrackPublication(Track.Source.Microphone);
   const camPub = localParticipant?.getTrackPublication(Track.Source.Camera);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);

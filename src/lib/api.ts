@@ -80,8 +80,14 @@ export function getServerUrl(): string {
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${SERVER_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(opts?.headers ?? {}) },
     ...opts,
+    // Merge caller headers UNDER the defaults so Content-Type is never
+    // clobbered: previously `...opts` spread AFTER `headers`, so opts.headers
+    // (e.g. { Authorization } on toggleTranscription) REPLACED the merged
+    // object and dropped Content-Type — the server then saw req.body as a
+    // raw JSON string instead of a parsed object, and Boolean(body.enabled)
+    // silently became false. This broke turning transcription back ON.
+    headers: { 'Content-Type': 'application/json', ...(opts?.headers ?? {}) },
   });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;

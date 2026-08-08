@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useContext } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
 import { useStt } from '../../hooks/useStt';
 import { FiAlertTriangle, FiCircle, FiLink, FiMicOff, FiUsers } from 'react-icons/fi';
@@ -10,7 +10,7 @@ import ParticipantList from './ParticipantList';
 import ConsentBanner from './ConsentBanner';
 import ChatPanel from '../chat/ChatPanel';
 import GamesPanel from '../games/GamesPanel';
-import { useLocalParticipant, RoomAudioRenderer } from '@livekit/components-react';
+import { RoomContext, RoomAudioRenderer } from '@livekit/components-react';
 import type { GameRound } from '../../types/games';
 
 interface Props {
@@ -30,7 +30,13 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const [recordingNoticeDismissed, setRecordingNoticeDismissed] = useState(false);
   const [captionsNudgeDismissed, setCaptionsNudgeDismissed] = useState(false);
-  const { localParticipant } = useLocalParticipant();
+  // LiveKit room context — null when the media server is unreachable or while
+  // connecting. Reading the context directly (instead of useLocalParticipant)
+  // is deliberate: the hook THROWS "No room provided" when the context is
+  // undefined, which would crash the whole meeting (chat/games/captions are
+  // supposed to keep working in text mode).
+  const liveKitRoom = useContext(RoomContext);
+  const localParticipant = liveKitRoom?.localParticipant ?? null;
 
   // Re-show recording result/error notices when a new one arrives
   useEffect(() => {
@@ -258,14 +264,30 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Video area */}
         <div className="flex-1 relative min-w-0">
-          {/* Remote audio playback — attaches every participant's mic
-              track to an <audio> element. Without this, remote audio is
-              received by the SDK but never played: total silence. */}
-          <RoomAudioRenderer />
-          {viewMode === 'grid' ? (
-            <VideoGrid onSpeakerClick={(id) => { setActiveSpeakerId(id); setViewMode('speaker'); }} />
+          {/* LiveKit media — only rendered when a room actually exists. The
+              LiveKit hooks (useTracks, useRemoteParticipants) throw without a
+              RoomContext, so in text mode (no media server) we render a
+              placeholder instead of crashing the whole meeting. */}
+          {liveKitRoom ? (
+            <>
+              {/* Remote audio playback — attaches every participant's mic
+                  track to an <audio> element. Without this, remote audio is
+                  received by the SDK but never played: total silence. */}
+              <RoomAudioRenderer />
+              {viewMode === 'grid' ? (
+                <VideoGrid onSpeakerClick={(id) => { setActiveSpeakerId(id); setViewMode('speaker'); }} />
+              ) : (
+                <SpeakerView activeSpeakerId={activeSpeakerId} />
+              )}
+            </>
           ) : (
-            <SpeakerView activeSpeakerId={activeSpeakerId} />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6">
+              <FiAlertTriangle className="w-8 h-8 text-muted" />
+              <p className="text-sm text-muted">
+                Video &amp; audio are unavailable — the media server isn't reachable.
+              </p>
+              <p className="text-xs text-muted/70">Chat, games and captions still work.</p>
+            </div>
           )}
 
           {/* Captions overlay */}

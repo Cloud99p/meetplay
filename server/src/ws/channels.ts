@@ -40,16 +40,19 @@ class ChannelManager {
     }
   }
 
-  broadcast(roomId: string, msg: ServerMessage, excludeId?: string): void {
+  broadcast(roomId: string, msg: ServerMessage, excludeId?: string): number {
     const ch = this.rooms.get(roomId);
-    if (!ch) return;
+    if (!ch) return 0;
     const data = encode(msg);
+    let count = 0;
     for (const [pid, entry] of ch.participants) {
       if (pid === excludeId) continue;
       if (entry.ws.readyState === WebSocket.OPEN) {
         entry.ws.send(data);
+        count++;
       }
     }
+    return count;
   }
 
   sendTo(roomId: string, participantId: string, msg: ServerMessage): void {

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { connect } from 'net';
+import { lookup } from 'dns/promises';
 import { loadConfig } from '../config.js';
 
 /**
@@ -34,8 +35,19 @@ function resolveProbeTarget(): { host: string; port: number } {
 async function probeLiveKit(): Promise<{ available: boolean }> {
   const { host, port } = resolveProbeTarget();
 
+  // Resolve IPv4 explicitly: on hosts where IPv6 is unroutable (common on
+  // some networks), the default dual-stack lookup can stall past the 2s
+  // timeout and make a healthy LiveKit server look unavailable.
+  let address = host;
+  try {
+    const r = await lookup(host, { family: 4 });
+    address = r.address;
+  } catch {
+    /* keep hostname — connect() will resolve it itself */
+  }
+
   return new Promise((resolve) => {
-    const socket = connect({ host, port, timeout: 2_000 }, () => {
+    const socket = connect({ host: address, port, timeout: 2_000 }, () => {
       socket.destroy();
       resolve({ available: true });
     });
