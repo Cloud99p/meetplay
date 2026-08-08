@@ -31,6 +31,9 @@ function formatTime(ms: number): string {
  * ("I think 'synergy' gets said 10 times"), optionally with a time limit
  * (1/2/5/10 min) instead of call-long. Everyone else can bet on it too.
  * Resolves when the timer fires or at meeting end.
+ *
+ * Responsive container: uses min-w-0 + flex-wrap so every row fits the panel
+ * at any width (the panel is full-width overlay on mobile, fixed 320px on sm+).
  */
 export default function UserMarkets({ markets, myParticipantId, error, onCreate, onBet, quiet }: Props) {
   const [word, setWord] = useState('');
@@ -66,9 +69,9 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
   };
 
   return (
-    <div className={`p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
-      <h4 className="text-xs font-medium text-muted uppercase tracking-wider flex items-center gap-1.5">
-        <FiUsers className="w-3.5 h-3.5 text-secondary" /> Member Word Bets
+    <div className={`w-full min-w-0 max-w-full p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
+      <h4 className="text-xs font-medium text-muted uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
+        <FiUsers className="w-3.5 h-3.5 text-secondary flex-shrink-0" /> Member Word Bets
         <span className="text-[10px] font-normal text-muted bg-bg-elevated px-1.5 py-0.5 rounded-full">
           {markets.length}/5
         </span>
@@ -76,36 +79,39 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
 
       {/* Create form */}
       {canCreate && (
-        <div className="bg-bg-elevated border border-border rounded-lg p-2.5 space-y-2">
-          <p className="text-[11px] text-muted">Open a bet — pick a word + your guess. Others can bet on it too.</p>
-          <div className="flex gap-2">
+        <div className="w-full min-w-0 bg-bg-elevated border border-border rounded-lg p-2.5 sm:p-3 space-y-2.5">
+          <p className="text-[11px] text-muted leading-snug">Open a bet — pick a word + your guess. Others can bet on it too.</p>
+          {/* Word full-width on its own line; guess + button share a row */}
+          <div className="flex flex-col sm:flex-row gap-2 w-full min-w-0">
             <input
               type="text"
               value={word}
               onChange={(e) => setWord(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              onKeyDown={(e) => e.key === 'Enter' && guess && handleCreate()}
               placeholder="Word (e.g. synergy)"
               maxLength={20}
-              className="flex-1 px-3 py-2 bg-bg-surface border border-border rounded-lg text-sm text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
+              className="w-full min-w-0 px-3 py-2 bg-bg-surface border border-border rounded-lg text-sm text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
             />
-            <input
-              type="number"
-              min={0}
-              value={guess}
-              onChange={(e) => setGuess(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              placeholder="Your guess"
-              className="w-24 px-3 py-2 bg-bg-surface border border-border rounded-lg text-sm text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
-            />
-            <button
-              onClick={handleCreate}
-              className="px-3 py-2 bg-secondary hover:bg-secondary/90 text-on-primary font-medium rounded-lg transition-colors cursor-pointer text-sm active:scale-[0.98] flex items-center gap-1"
-            >
-              <FiPlus className="w-4 h-4" /> Open
-            </button>
+            <div className="flex gap-2 w-full sm:w-auto min-w-0">
+              <input
+                type="number"
+                min={0}
+                value={guess}
+                onChange={(e) => setGuess(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                placeholder="Guess"
+                className="flex-1 sm:flex-none sm:w-24 min-w-0 px-3 py-2 bg-bg-surface border border-border rounded-lg text-sm text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
+              />
+              <button
+                onClick={handleCreate}
+                className="flex-shrink-0 px-3 sm:px-4 py-2 bg-secondary hover:bg-secondary/90 text-on-primary font-medium rounded-lg transition-colors cursor-pointer text-sm active:scale-[0.98] flex items-center gap-1"
+              >
+                <FiPlus className="w-4 h-4" /> Open
+              </button>
+            </div>
           </div>
           {/* Duration picker */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 w-full min-w-0">
             <span className="text-[10px] text-muted uppercase tracking-wider mr-0.5">Window:</span>
             {DURATIONS.map((d) => (
               <button
@@ -122,8 +128,8 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
             ))}
           </div>
           {error && (
-            <p className="text-[11px] text-danger flex items-center gap-1">
-              <FiAlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
+            <p className="text-[11px] text-danger flex items-start gap-1">
+              <FiAlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" /> {error}
             </p>
           )}
         </div>
@@ -133,7 +139,7 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
       {markets.length === 0 ? (
         <p className="text-[11px] text-muted/70">No member markets yet — open the first one!</p>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2 w-full min-w-0">
           {markets.map((m) => {
             const myBet = m.myBet;
             const oddsEntries = Object.entries(m.odds)
@@ -145,36 +151,38 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
             const remainingMs = m.endsAt ? new Date(m.endsAt).getTime() - now : 0;
             const expiring = timed && remainingMs < 30_000;
             return (
-              <div key={m.roundId} className="bg-bg-surface border border-border rounded-lg p-2.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-foreground">
-                    "{m.targetWord}"
-                    {mine && <span className="text-[10px] text-primary ml-1.5 bg-primary/10 px-1.5 py-0.5 rounded-full">yours</span>}
+              <div key={m.roundId} className="w-full min-w-0 bg-bg-surface border border-border rounded-lg p-2.5 sm:p-3 space-y-2">
+                {/* Header: word left, meta wraps on the right on narrow widths */}
+                <div className="flex items-start justify-between gap-2 flex-wrap w-full min-w-0">
+                  <p className="text-sm font-medium text-foreground break-words min-w-0 leading-snug">
+                    <span className="break-words">"{m.targetWord}"</span>
+                    {mine && <span className="text-[10px] text-primary ml-1.5 bg-primary/10 px-1.5 py-0.5 rounded-full whitespace-nowrap">yours</span>}
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
                     {timed && (
-                      <span className={`flex items-center gap-1 text-[10px] font-mono font-semibold ${expiring ? 'text-warning' : 'text-muted'}`}>
+                      <span className={`flex items-center gap-1 text-[10px] font-mono font-semibold whitespace-nowrap ${expiring ? 'text-warning' : 'text-muted'}`}>
                         <FiClock className="w-3 h-3" /> {formatTime(remainingMs)}
                       </span>
                     )}
                     {m.resolved && (
-                      <span className="text-[10px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full">RESOLVED</span>
+                      <span className="text-[10px] font-semibold text-success bg-success/10 px-2 py-0.5 rounded-full whitespace-nowrap">RESOLVED</span>
                     )}
-                    <span className="text-[10px] text-muted">by {m.createdByName}</span>
+                    <span className="text-[10px] text-muted whitespace-nowrap">by {m.createdByName}</span>
                   </div>
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-muted">
-                  <span>
+                {/* Live count + odds chips */}
+                <div className="flex items-center justify-between gap-2 flex-wrap w-full min-w-0 text-[11px] text-muted">
+                  <span className="whitespace-nowrap">
                     live count: <strong className="text-foreground font-mono">{m.liveCount}</strong>
                     {m.resolved && m.actualCount !== undefined && (
                       <span className="ml-1.5 text-success">✓ {m.actualCount}</span>
                     )}
                   </span>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-wrap justify-end min-w-0">
                     {oddsEntries.map(({ guess: g, odds }) => (
                       <span
                         key={g}
-                        className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${
+                        className={`font-mono text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap ${
                           myBet?.guess === g ? 'bg-secondary/15 text-foreground border border-secondary/40' : 'bg-bg-elevated text-muted'
                         }`}
                       >
@@ -187,12 +195,12 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
                   (myBet ? (
                     <div className="flex items-center gap-2 bg-success/10 border border-success/30 rounded-lg px-2.5 py-1.5 text-xs text-foreground">
                       <FiCheck className="w-3.5 h-3.5 text-success flex-shrink-0" />
-                      <span>
+                      <span className="min-w-0 break-words">
                         You bet <strong className="font-mono">{myBet.guess}</strong> @ <strong className="font-mono">×{myBet.lockedOdds.toFixed(2)}</strong>
                       </span>
                     </div>
                   ) : (
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 w-full min-w-0">
                       <input
                         type="number"
                         min={0}
@@ -200,11 +208,11 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
                         onChange={(e) => setBetInputs((prev) => ({ ...prev, [m.roundId]: e.target.value }))}
                         onKeyDown={(e) => e.key === 'Enter' && handleBet(m.roundId)}
                         placeholder="Times said?"
-                        className="flex-1 px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
+                        className="flex-1 min-w-0 px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
                       />
                       <button
                         onClick={() => handleBet(m.roundId)}
-                        className="px-3 py-1.5 bg-secondary hover:bg-secondary/90 text-on-primary font-medium rounded-lg transition-colors cursor-pointer text-xs active:scale-[0.98]"
+                        className="flex-shrink-0 px-3 py-1.5 bg-secondary hover:bg-secondary/90 text-on-primary font-medium rounded-lg transition-colors cursor-pointer text-xs active:scale-[0.98]"
                       >
                         Bet
                       </button>
@@ -213,7 +221,7 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
                 {m.resolved && myBet && m.actualCount !== undefined && (
                   <div className="flex items-center gap-2 bg-bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground">
                     <FiAward className="w-3.5 h-3.5 text-warning flex-shrink-0" />
-                    <span>
+                    <span className="min-w-0 break-words">
                       Your bet: <strong className="font-mono">{myBet.guess}</strong> @ ×{myBet.lockedOdds.toFixed(2)} · final{' '}
                       <strong className="font-mono">{m.actualCount}</strong>
                     </span>

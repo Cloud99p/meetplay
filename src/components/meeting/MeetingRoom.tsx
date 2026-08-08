@@ -280,8 +280,10 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             {viewMode === 'grid' ? 'Speaker' : 'Grid'}
           </button>
 
-          {/* Side panel buttons on video */}
-          <div className="absolute top-4 right-4 flex gap-1.5 sm:gap-2">
+          {/* Side panel buttons on video — on mobile (panel overlays) hide them
+              while a panel is open since the panel has its own close X; keep
+              them on sm+ where the panel is in-flow. */}
+          <div className={`absolute top-4 right-4 sm:flex gap-1.5 sm:gap-2 ${sidePanelOpen ? 'hidden' : 'flex'} z-40`}>
             <button
               onClick={() => {
                 const url = `${window.location.origin}/#/join/${state.room?.id}`;
@@ -322,6 +324,21 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         {/* Right side panel */}
         {sidePanelOpen && (
           <div className="absolute inset-y-0 right-0 w-full sm:w-80 sm:relative sm:inset-auto border-l border-border bg-bg-surface flex flex-col z-30 shadow-2xl sm:shadow-none">
+            {/* Mobile-visible close bar — on small screens the panel is a full-
+                width overlay (z-30) that otherwise traps the user with no exit. */}
+            <div className="sm:hidden flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="text-xs font-medium text-muted uppercase tracking-wider">
+                {showGames ? 'Games' : showParticipants ? 'Participants' : 'Chat'}
+              </span>
+              <button
+                onClick={() => { setShowGames(false); setShowParticipants(false); setShowChat(false); }}
+                className="w-8 h-8 grid place-items-center rounded-md text-foreground hover:bg-bg-elevated transition-colors cursor-pointer"
+                aria-label="Close panel"
+                title="Close"
+              >
+                <span className="text-lg leading-none">✕</span>
+              </button>
+            </div>
             {showChat && (
               <ChatPanel
                 messages={state.messages}

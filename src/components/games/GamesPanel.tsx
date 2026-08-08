@@ -54,13 +54,13 @@ export default function GamesPanel({
   const [tab, setTab] = useState<Tab>('game');
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${transcriptionEnabled ? 'bg-success animate-pulse-dot' : 'bg-muted'}`} />
           Games
           {quiet && (
-            <span className="text-[10px] font-normal text-muted bg-bg-elevated px-1.5 py-0.5 rounded">
+            <span className="text-[10px] font-normal text-muted bg-bg-elevated px-1.5 py-0.5 rounded whitespace-nowrap">
               quiet — presenting
             </span>
           )}
@@ -180,8 +180,9 @@ function LeaderboardView({ leaderboard, participantId }: { leaderboard: Leaderbo
   }
 
   return (
-    <div className="p-2">
-      <table className="w-full text-sm">
+    <div className="p-2 w-full min-w-0">
+      <div className="w-full min-w-0 overflow-x-auto">
+        <table className="w-full text-sm">
         <thead>
           <tr className="text-xs text-muted uppercase tracking-wider">
             <th className="text-left px-2 py-2 font-medium">#</th>
@@ -204,6 +205,7 @@ function LeaderboardView({ leaderboard, participantId }: { leaderboard: Leaderbo
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

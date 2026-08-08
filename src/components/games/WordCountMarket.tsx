@@ -38,8 +38,8 @@ export default function WordCountMarket({ market, onBet, quiet }: Props) {
   const myLocked = market.myBet;
 
   return (
-    <div className={`p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
-      <div className="flex items-center justify-between">
+    <div className={`w-full min-w-0 max-w-full p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
+      <div className="flex items-start justify-between gap-2 flex-wrap">
         <h4 className="text-xs font-medium text-muted uppercase tracking-wider flex items-center gap-1.5">
           <FiTrendingUp className="w-3.5 h-3.5 text-primary" /> Word Count Bet
           <span className="text-[10px] font-normal text-muted bg-bg-elevated px-1.5 py-0.5 rounded-full">live all call</span>
@@ -51,7 +51,7 @@ export default function WordCountMarket({ market, onBet, quiet }: Props) {
 
       <div className="text-center py-3 bg-bg-elevated rounded-lg border border-border">
         <p className="text-[11px] text-muted mb-1">Final count of…</p>
-        <p className="text-2xl font-heading font-bold text-primary">"{market.targetWord}"</p>
+        <p className="text-2xl font-heading font-bold text-primary break-words min-w-0">"{market.targetWord}"</p>
         <p className="text-[11px] text-muted mt-1">
           live count: <strong className="text-foreground font-mono">{market.liveCount}</strong>
           {market.resolved && market.actualCount !== undefined && (

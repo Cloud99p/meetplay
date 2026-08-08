@@ -32,7 +32,7 @@ export default function WhoSaidThat({ round, onSubmit, disabled }: Props) {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="w-full min-w-0 max-w-full p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-muted uppercase tracking-wider">Who Said That?</h4>
         <span className="text-sm font-mono text-warning flex items-center gap-1"><FiClock className="w-3.5 h-3.5" />{formatTime(timeLeft)}</span>

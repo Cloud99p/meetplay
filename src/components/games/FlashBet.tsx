@@ -56,9 +56,9 @@ export default function FlashBet({ flash, onBet, quiet }: Props) {
   const myLocked = flash.myBet;
 
   return (
-    <div className={`p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
-      <div className="flex items-center justify-between">
-        <h4 className="text-xs font-medium text-warning uppercase tracking-wider flex items-center gap-1.5">
+    <div className={`w-full min-w-0 max-w-full p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <h4 className="text-xs font-medium text-warning uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
           <FiZap className="w-3.5 h-3.5" /> Flash Word Count Bet
           {live && (
             <span className="text-[10px] font-semibold bg-warning/15 text-warning px-1.5 py-0.5 rounded-full animate-pulse-dot">
