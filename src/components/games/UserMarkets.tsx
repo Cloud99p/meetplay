@@ -81,8 +81,10 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
       {canCreate && (
         <div className="w-full min-w-0 bg-bg-elevated border border-border rounded-lg p-2.5 sm:p-3 space-y-2.5">
           <p className="text-[11px] text-muted leading-snug">Open a bet — pick a word + your guess. Others can bet on it too.</p>
-          {/* Word full-width on its own line; guess + button share a row */}
-          <div className="flex flex-col sm:flex-row gap-2 w-full min-w-0">
+          {/* Word + guess + Open — grid layout: word column (1fr) shrinks to
+              absorb tight widths so the Open button always stays inside the
+              card. Stacks to one column on mobile. */}
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto] gap-2 w-full min-w-0">
             <input
               type="text"
               value={word}
@@ -92,23 +94,21 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
               maxLength={20}
               className="w-full min-w-0 px-3 py-2 bg-bg-surface border border-border rounded-lg text-sm text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
             />
-            <div className="flex gap-2 w-full sm:w-auto min-w-0">
-              <input
-                type="number"
-                min={0}
-                value={guess}
-                onChange={(e) => setGuess(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-                placeholder="Guess"
-                className="flex-1 sm:flex-none sm:w-24 min-w-0 px-3 py-2 bg-bg-surface border border-border rounded-lg text-sm text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
-              />
-              <button
-                onClick={handleCreate}
-                className="flex-shrink-0 px-3 sm:px-4 py-2 bg-secondary hover:bg-secondary/90 text-on-primary font-medium rounded-lg transition-colors cursor-pointer text-sm active:scale-[0.98] flex items-center gap-1"
-              >
-                <FiPlus className="w-4 h-4" /> Open
-              </button>
-            </div>
+            <input
+              type="number"
+              min={0}
+              value={guess}
+              onChange={(e) => setGuess(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              placeholder="Guess"
+              className="w-full sm:w-24 min-w-0 px-3 py-2 bg-bg-surface border border-border rounded-lg text-sm text-foreground placeholder:text-muted/50 focus:border-secondary outline-none transition-colors"
+            />
+            <button
+              onClick={handleCreate}
+              className="justify-self-stretch sm:justify-self-auto px-3 sm:px-4 py-2 bg-secondary hover:bg-secondary/90 text-on-primary font-medium rounded-lg transition-colors cursor-pointer text-sm active:scale-[0.98] flex items-center justify-center gap-1"
+            >
+              <FiPlus className="w-4 h-4" /> Open
+            </button>
           </div>
           {/* Duration picker */}
           <div className="flex flex-wrap items-center gap-1.5 w-full min-w-0">
