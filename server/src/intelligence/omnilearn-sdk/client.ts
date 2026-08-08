@@ -1,5 +1,3 @@
-// ⚠️ VENDORED from omnilearn-agent packages/sdk (v1.1.0, commit e518326).
-// Do not edit by hand — sync from the omnilearn repo when the SDK changes.
 /**
  * OmniLearn SDK - Core Client Implementation
  * 
@@ -25,6 +23,8 @@ import {
   RegisterSchemaParams,
   RegisterSchemaResponse,
   KnowledgeSchema,
+  RegisterServiceParams,
+  RegisterServiceResponse,
   ServiceInfo,
 } from './types.js';
 
@@ -234,12 +234,12 @@ export class OmniLearnClient {
   /**
    * Delete knowledge nodes by metadata filter (privacy purge)
    * 
-   * @param params - Delete parameters (requires metadataFilter, e.g. { meetingId: 'room-123' })
+   * @param params - Delete parameters (requires metadataFilter, e.g. { sessionId: 'session-123' })
    * @returns Delete response with deleted/matched counts
    * 
    * @example
    * ```typescript
-   * const result = await client.delete({ metadataFilter: { meetingId: 'room-123' } });
+   * const result = await client.delete({ metadataFilter: { sessionId: 'session-123' } });
    * console.log(`Deleted ${result.deleted} nodes`);
    * ```
    */
@@ -441,6 +441,34 @@ export class OmniLearnClient {
     
     const raw = await this.request<{ success: boolean; stats: ServiceStats }>('GET', '/api/v1/services/me/stats');
     return raw.stats.serviceInfo;
+  }
+
+  /**
+   * Register this service with OmniLearn and receive an API key.
+   *
+   * This is the onboarding flow for any external project: call it once at
+   * startup (or via CLI) with your service details, and the platform returns
+   * an API key to use for all subsequent client calls.
+   *
+   * @param params - Service registration details
+   * @returns Registration response containing the generated API key
+   *
+   * @example
+   * ```typescript
+   * const reg = await client.registerService({
+   *   name: 'my-trading-bot',
+   *   ownerEmail: 'dev@example.com',
+   *   domain: 'blockchain',
+   *   description: 'Records trade executions for portfolio analytics',
+   *   knowledgeTypes: ['trade_executed', 'position_closed'],
+   * });
+   * console.log('API key:', reg.apiKey);
+   * ```
+   */
+  async registerService(params: RegisterServiceParams): Promise<RegisterServiceResponse> {
+    this.log('[registerService] Registering service', params.name);
+    
+    return await this.request<RegisterServiceResponse>('POST', '/api/v1/services/register', params);
   }
 
   // ============================================================================

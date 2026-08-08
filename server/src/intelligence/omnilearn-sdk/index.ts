@@ -1,5 +1,3 @@
-// ⚠️ VENDORED from omnilearn-agent packages/sdk (v1.1.0, commit e518326).
-// Do not edit by hand — sync from the omnilearn repo when the SDK changes.
 /**
  * OmniLearn SDK
  * 
