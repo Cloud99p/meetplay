@@ -279,7 +279,10 @@ export class DeepgramAdapter implements STTAdapter {
     this.lastServerMsgAt = Date.now();
 
     if (msg.type === 'Error') {
-      console.warn('[DeepgramAdapter] server error:', msg.message);
+      // Deepgram v2 flux Error frames use `errmsg`; the server proxy uses
+      // `message`. Log whichever is present so the real reason shows up.
+      const detail = msg.message ?? msg.errmsg ?? JSON.stringify(msg).slice(0, 200);
+      console.warn('[DeepgramAdapter] server error:', detail);
       // The server closes the socket after most Error frames; be defensive
       // and force the reconnect ourselves if it didn't.
       try {
