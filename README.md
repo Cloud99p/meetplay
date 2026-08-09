@@ -211,6 +211,10 @@ else — video, mic, chat, games, captions — works on mobile.
 
 ---
 
+## Recording
+
+**Hosts can record the call** (LiveKit Egress, MP4 @ 1080p/30): the Record button in the ControlBar starts/stops a room-composite recording, and a **Download recording** link appears for everyone when the file finalizes. Host-only, live indicator, graceful errors when LiveKit/egress isn't configured. On LiveKit Cloud the file lands in managed storage (public download URL); self-hosted setups get a filepath the client reports but can't auto-link.
+
 ## Stretch (not yet built, in order)
 
-Recording + playback · team/SSO accounts · engagement analytics · PWA · monetization tiers.
+In-app playback player · team/SSO accounts · engagement analytics · PWA · monetization tiers.
