@@ -25,7 +25,7 @@ This repo includes `railway.json` (Dockerfile builder, `/health` probe).
 |-----|---------|---------|
 | `LIVEKIT_URL` | `wss://meetplay-xxx.livekit.cloud` | LiveKit Cloud (or local) server URL |
 | `LIVEKIT_API_KEY` | `API...` | LiveKit Cloud API key (cloud.livekit.io → Settings) |
-| `LIVEKIT_API_SECRET` | (64-char secret) | LiveKit Cloud API secret — **rotate it now if you ever committed it** |
+| `LIVEKIT_API_SECRET` | (64-char secret) | LiveKit Cloud API secret — keep it out of the repo, set it only in your platform's dashboard |
 
 ## Optional env vars
 
@@ -56,7 +56,7 @@ This repo includes `railway.json` (Dockerfile builder, `/health` probe).
 
 1. `cp .env.example .env` and fill in `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (from cloud.livekit.io).
 2. `npm run dev` — backend :3001 + Vite :5173, mock STT by default.
-3. For real STT: set `VITE_STT_MODE=deepgram` and `VITE_DEEPGRAM_API_KEY` (console.deepgram.com).
+3. For real STT: set `VITE_STT_MODE=deepgram` and `DEEPGRAM_API_KEY` (console.deepgram.com) — the key is used server-side by the `/api/stt` proxy, never in the browser.
 
 ## Demo checklist for judges
 
