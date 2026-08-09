@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET ?? 'meetplay-dev-secret';
+import { loadConfig } from '../config.js';
 
 export interface RoomTokenPayload {
   roomId: string;
@@ -9,13 +8,22 @@ export interface RoomTokenPayload {
   isHost: boolean;
 }
 
+/**
+ * Single source of truth for the signing secret. loadConfig() already throws
+ * on boot in production when JWT_SECRET is missing, so a real deployment can
+ * never silently fall back to the public dev string.
+ */
+function getSecret(): string {
+  return loadConfig().jwtSecret;
+}
+
 export function generateRoomToken(payload: RoomTokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+  return jwt.sign(payload, getSecret(), { expiresIn: '24h' });
 }
 
 export function verifyRoomToken(token: string): RoomTokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as RoomTokenPayload;
+    return jwt.verify(token, getSecret()) as RoomTokenPayload;
   } catch {
     return null;
   }

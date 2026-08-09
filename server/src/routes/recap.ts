@@ -1,10 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import { getRecap } from '../db/queries.js';
+import { verifyRoomToken } from '../utils/jwt.js';
 import { omniClient } from '../intelligence/omniClient.js';
 
 export async function recapRoutes(app: FastifyInstance) {
+  // Full transcript + leaderboard + key quotes after a meeting ends. This is
+  // the most sensitive data in the app — requires a valid room token so a
+  // guessed room UUID alone is never enough to pull it (privacy hard
+  // requirement; same pattern as /messages and /end).
   app.get('/api/rooms/:id/recap', async (req, reply) => {
     const { id } = req.params as { id: string };
+    const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const payload = auth ? verifyRoomToken(auth) : null;
+    if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
+    if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
+
     const [recap, graphQuotes] = await Promise.all([
       getRecap(id),
       omniClient.getQuotes(id, 50),

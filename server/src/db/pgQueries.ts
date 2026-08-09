@@ -396,3 +396,29 @@ function withSummary(recap: any) {
 
   return { ...recap, leaderboard, keyQuotes };
 }
+
+// ─── Abandoned-room cleanup ────────────────────────────────
+
+/**
+ * Purge rooms that were created but abandoned (never ended): state is still
+ * 'active' and no activity of any kind (chat, transcript, participant join,
+ * game round) occurred within maxAgeHours. FK ON DELETE CASCADE removes
+ * participants, chat, transcripts, game rounds and submissions. Returns the
+ * purged room ids.
+ */
+export async function cleanupAbandonedRooms(maxAgeHours = 24): Promise<string[]> {
+  const { rows } = await pool.query(
+    `DELETE FROM rooms r
+     WHERE r.state = 'active'
+       AND GREATEST(
+         r.created_at,
+         COALESCE((SELECT MAX(m.created_at) FROM chat_messages m WHERE m.room_id = r.id), r.created_at),
+         COALESCE((SELECT MAX(t.created_at) FROM transcript_events t WHERE t.room_id = r.id), r.created_at),
+         COALESCE((SELECT MAX(p.joined_at) FROM participants p WHERE p.room_id = r.id), r.created_at),
+         COALESCE((SELECT MAX(COALESCE(g.ended_at, g.started_at)) FROM game_rounds g WHERE g.room_id = r.id), r.created_at)
+       ) < NOW() - ($1::int * INTERVAL '1 hour')
+     RETURNING id`,
+    [maxAgeHours]
+  );
+  return rows.map((r) => r.id as string);
+}

@@ -13,6 +13,11 @@ import {
 } from '../db/queries.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
+import {
+  checkPasswordAttempt,
+  recordPasswordFailure,
+  clearPasswordAttempts,
+} from '../utils/passwordGuard.js';
 import { mintJoinToken } from '../livekit/token.js';
 import { probeLiveKit } from './livekit.js';
 import { loadConfig } from '../config.js';
@@ -108,9 +113,23 @@ export async function roomsRoutes(app: FastifyInstance) {
     }
 
     if (room.password_hash) {
+      // Server-side lockout per room+IP: the client-side form lockout is
+      // cosmetic (refresh bypasses it). 5 failed tries -> 15 min 429.
+      const ip = req.ip ?? 'unknown';
+      const guard = checkPasswordAttempt(id, ip);
+      if (!guard.allowed) {
+        return reply.code(429).send({
+          error: 'Too many failed password attempts. Try again later.',
+          retryAfterMs: guard.retryAfterMs,
+        });
+      }
       const password = body.password ?? '';
       const ok = await verifyPassword(password, room.password_hash);
-      if (!ok) return reply.code(401).send({ error: 'Wrong password' });
+      if (!ok) {
+        recordPasswordFailure(id, ip);
+        return reply.code(401).send({ error: 'Wrong password' });
+      }
+      clearPasswordAttempts(id, ip);
     }
 
     let name =
@@ -193,9 +212,16 @@ export async function roomsRoutes(app: FastifyInstance) {
     });
   });
 
-  // Get room messages (for late joiners / reload)
+  // Get room messages (for late joiners / reload) — REQUIRES a valid room
+  // token so the transcript/chat-adjacent data can't be pulled by anyone who
+  // guesses a room UUID (privacy hard requirement).
   app.get('/api/rooms/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
+    const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const payload = auth ? verifyRoomToken(auth) : null;
+    if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
+    if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
+
     const room = await getRoomById(id);
     if (!room) return reply.code(404).send({ error: 'Room not found' });
     const messages = await getChatMessages(id);

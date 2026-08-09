@@ -11,6 +11,7 @@ import { livekitRoutes } from './routes/livekit.js';
 import { sttRoutes } from './routes/stt.js';
 import { wsHandler } from './ws/handler.js';
 import { runMigrations } from './db/migrate.js';
+import { startRoomCleanup } from './cleanup.js';
 
 const app = Fastify({ logger: true });
 const USE_MEMORY = !process.env.DATABASE_URL || process.env.USE_MEMORY_DB === '1';
@@ -24,7 +25,22 @@ if (!USE_MEMORY) {
   app.decorate('pg', { pool });
 }
 
-await app.register(cors, { origin: true });
+// CORS: auth is Bearer-token (not cookies), so the practical risk of a
+// permissive policy is lower — but reflecting ANY origin still lets a
+// malicious page make authenticated-looking requests if a token ever leaks
+// (XSS elsewhere, screenshots, etc.).
+//   - CORS_ORIGINS set -> allow exactly those origins (comma-separated).
+//   - otherwise in production -> deny all cross-origin (same-origin only;
+//     the app is served from the same host).
+//   - local dev -> still same-origin via the Vite proxy, so deny-all is safe
+//     and correct there too.
+const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+await app.register(cors, {
+  origin: corsOrigins.length > 0 ? corsOrigins : false,
+});
 await app.register(websocket);
 
 // Rate limit all REST APIs (privacy/security NFR): 120 req/min per IP,
@@ -60,6 +76,11 @@ await app.register(roomsRoutes);
 await app.register(recapRoutes);
 await app.register(livekitRoutes);
 await app.register(sttRoutes);
+
+// Abandoned-room data retention: purge rooms idle > ROOM_RETENTION_HOURS
+// (default 24h) so abandoned meetings don't keep transcripts in Postgres
+// forever. Runs hourly by default; tunable via env.
+startRoomCleanup();
 
 // ---- Static frontend (production) ----
 // Serve the built Vite app from dist/ with SPA fallback. Skip if dist is

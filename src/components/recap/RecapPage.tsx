@@ -31,7 +31,16 @@ export default function RecapPage({ roomId, onBack }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        const data = await api.getRecap(roomId);
+        // The recap contains the full transcript — the server requires a valid
+        // room token (sessionStorage) so a bare /recap/:roomId link can't be
+        // scraped by anyone who guesses the UUID.
+        const token = api.getRoomToken();
+        if (!token) {
+          setError('This recap requires an active meeting session. Join the meeting to view it.');
+          setLoading(false);
+          return;
+        }
+        const data = await api.getRecap(roomId, token);
         setRecap(data);
       } catch (e: any) {
         setError(e?.message ?? 'Failed to load recap');

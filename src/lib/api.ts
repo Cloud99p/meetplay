@@ -158,8 +158,13 @@ export async function getRoom(roomId: string): Promise<{ room: Room }> {
   return request<{ room: Room }>(`/api/rooms/${roomId}`);
 }
 
-export async function getChatHistory(roomId: string): Promise<{ messages: ChatMessage[] }> {
-  return request<{ messages: ChatMessage[] }>(`/api/rooms/${roomId}/messages`);
+export async function getChatHistory(
+  roomId: string,
+  roomToken: string
+): Promise<{ messages: ChatMessage[] }> {
+  return request<{ messages: ChatMessage[] }>(`/api/rooms/${roomId}/messages`, {
+    headers: { Authorization: `Bearer ${roomToken}` },
+  });
 }
 
 export async function getLiveKitToken(
@@ -194,6 +199,8 @@ export async function toggleTranscription(
   });
 }
 
-export async function getRecap(roomId: string): Promise<RecapData> {
-  return request<RecapData>(`/api/rooms/${roomId}/recap`);
+export async function getRecap(roomId: string, roomToken: string): Promise<RecapData> {
+  return request<RecapData>(`/api/rooms/${roomId}/recap`, {
+    headers: { Authorization: `Bearer ${roomToken}` },
+  });
 }

@@ -34,6 +34,20 @@ export interface ServerConfig {
 
 const env = process.env;
 
+/**
+ * Production is anything that isn't the explicit dev/demo memory mode:
+ * NODE_ENV=production, or a real DATABASE_URL without USE_MEMORY_DB=1.
+ * In production a missing JWT_SECRET must be a HARD FAILURE — signing every
+ * room token with the public 'meetplay-dev-secret' fallback would let anyone
+ * forge host tokens (and the fallback string sits in this public repo).
+ */
+export function isProductionMode(): boolean {
+  return (
+    env.NODE_ENV === 'production' ||
+    (Boolean(env.DATABASE_URL) && env.USE_MEMORY_DB !== '1')
+  );
+}
+
 export function loadConfig(): ServerConfig {
   // LiveKit is optional at startup for dev/test in "text mode", but token
   // minting will fail with a clear error if keys are missing. We read them
@@ -42,12 +56,21 @@ export function loadConfig(): ServerConfig {
   const livekitApiKey = env.LIVEKIT_API_KEY?.trim() ?? '';
   const livekitApiSecret = env.LIVEKIT_API_SECRET?.trim() ?? '';
 
+  const jwtSecret = env.JWT_SECRET?.trim();
+  if (isProductionMode() && !jwtSecret) {
+    throw new Error(
+      'JWT_SECRET is not set. Refusing to boot in production with the public ' +
+        'dev fallback (it would let anyone forge room tokens). Set a strong ' +
+        'random JWT_SECRET in your deployment environment.',
+    );
+  }
+
   return {
     livekitUrl,
     livekitApiKey,
     livekitApiSecret,
     livekitHost: env.LIVEKIT_HOST?.trim() ?? 'localhost:7880',
-    jwtSecret: env.JWT_SECRET?.trim() ?? 'meetplay-dev-secret', // dev-only default
+    jwtSecret: jwtSecret ?? 'meetplay-dev-secret', // dev/demo only — prod throws above
     deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() ?? '',
     deepgramModel: env.DEEPGRAM_MODEL?.trim() ?? 'nova-2',
     databaseUrl: env.DATABASE_URL?.trim() || undefined,

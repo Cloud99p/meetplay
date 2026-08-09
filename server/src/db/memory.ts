@@ -272,6 +272,54 @@ export async function deleteTranscriptEvents(roomId: string) {
   }
 }
 
+/**
+ * Purge rooms that were created but abandoned (never ended): state is still
+ * 'active' and NO activity of any kind (chat, transcript, participant join,
+ * game round) has occurred within the last maxAgeHours. Deletes the room and
+ * ALL related rows (cascade semantics like Postgres FK ON DELETE CASCADE).
+ * Returns the purged room ids.
+ */
+export async function cleanupAbandonedRooms(maxAgeHours = 24): Promise<string[]> {
+  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+  const stale: string[] = [];
+
+  for (const room of store.rooms.values()) {
+    if (room.state !== 'active') continue;
+    let last = new Date(room.created_at).getTime();
+    for (const m of store.chatMessages.values()) {
+      if (m.room_id === room.id) last = Math.max(last, new Date(m.created_at).getTime());
+    }
+    for (const t of store.transcriptEvents.values()) {
+      if (t.room_id === room.id) last = Math.max(last, new Date(t.created_at).getTime());
+    }
+    for (const p of store.participants.values()) {
+      if (p.room_id === room.id) last = Math.max(last, new Date(p.joined_at).getTime());
+    }
+    for (const g of store.gameRounds.values()) {
+      if (g.room_id === room.id) last = Math.max(last, new Date(g.ended_at ?? g.started_at).getTime());
+    }
+    if (last < cutoff) stale.push(room.id);
+  }
+
+  for (const roomId of stale) {
+    store.rooms.delete(roomId);
+    for (const [id, p] of store.participants) if (p.room_id === roomId) store.participants.delete(id);
+    for (const [id, m] of store.chatMessages) if (m.room_id === roomId) store.chatMessages.delete(id);
+    for (const [id, t] of store.transcriptEvents) if (t.room_id === roomId) store.transcriptEvents.delete(id);
+    const roundIds: string[] = [];
+    for (const [id, g] of store.gameRounds) {
+      if (g.room_id === roomId) {
+        roundIds.push(id);
+        store.gameRounds.delete(id);
+      }
+    }
+    for (const [id, s] of store.gameSubmissions) {
+      if (roundIds.includes(s.round_id)) store.gameSubmissions.delete(id);
+    }
+  }
+  return stale;
+}
+
 // ─── Game Rounds ────────────────────────────────────────────
 
 export async function createGameRound(opts: {

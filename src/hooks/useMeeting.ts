@@ -667,7 +667,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
 
     // Fetch chat history
     try {
-      const history = await api.getChatHistory(roomId);
+      const history = await api.getChatHistory(roomId, result.token);
       setMessages(history.messages);
     } catch {
       // no history available
@@ -737,7 +737,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
 
       // Re-fetch chat history
       try {
-        const history = await api.getChatHistory(snap.roomId);
+        const history = await api.getChatHistory(snap.roomId, result.token);
         setMessages(history.messages);
       } catch {
         /* no history */

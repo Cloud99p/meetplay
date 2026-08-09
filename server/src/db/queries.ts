@@ -43,6 +43,10 @@ export const saveTranscriptEvent = impl.saveTranscriptEvent;
 export const getTranscriptEvents = impl.getTranscriptEvents;
 export const deleteTranscriptEvents = impl.deleteTranscriptEvents;
 
+// ─── Abandoned-room cleanup ─────────────────────────────────
+
+export const cleanupAbandonedRooms = impl.cleanupAbandonedRooms;
+
 // ─── Game Rounds ────────────────────────────────────────────
 
 export const createGameRound = impl.createGameRound;
