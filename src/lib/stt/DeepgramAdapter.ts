@@ -17,10 +17,12 @@ import type { STTAdapter, Utterance } from './STTAdapter';
 export class DeepgramAdapter implements STTAdapter {
   onUtterance?: (utterance: Utterance) => void;
   onError?: (message: string) => void;
+  onLevel?: (level: number) => void;
 
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
   private running = false;
@@ -29,6 +31,7 @@ export class DeepgramAdapter implements STTAdapter {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastInterimText = '';
+  private lastLevelReport = 0;
 
   start(): void {
     if (this.running) return;
@@ -78,11 +81,12 @@ export class DeepgramAdapter implements STTAdapter {
    */
   setMuted(muted: boolean): void {
     this.muted = muted;
-    if (muted && this.processor) {
-      // Stop pulling audio while muted to save CPU; the processor stays
-      // connected so unmuting is instant.
-      this.processor.onaudioprocess = null;
-    } else if (!muted && this.processor && this.audioContext) {
+    if (muted) {
+      this.onLevel?.(0);
+      // ScriptProcessor path: stop pulling audio while muted to save CPU.
+      // (Worklet path: the muted guard in handlePcm already drops frames.)
+      if (this.processor) this.processor.onaudioprocess = null;
+    } else if (this.processor && this.audioContext) {
       this.processor.onaudioprocess = (e) => this.handleAudio(e);
     }
   }
@@ -269,42 +273,95 @@ export class DeepgramAdapter implements STTAdapter {
 
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
     this.audioContext = new Ctx();
-
-    // Chrome autoplay policy: an AudioContext created OUTSIDE a user gesture
-    // starts in the 'suspended' state. A suspended context fires ZERO
-    // onaudioprocess events, so no PCM ever reaches Deepgram even though the
-    // WS session looks connected (Metadata arrives, captions never do).
-    // getUserMedia is async, so the gesture that triggered the mic prompt has
-    // usually expired by the time we get here. Resume now; if the browser
-    // still blocks it, resume on the next click/keypress (the user is
-    // actively clicking the UI anyway).
-    if (this.audioContext.state === 'suspended') {
-      void this.audioContext.resume().catch(() => undefined);
-    }
-    if (this.audioContext.state !== 'running') {
-      const tryResume = () => {
-        if (this.audioContext?.state === 'suspended') {
-          void this.audioContext.resume().catch(() => undefined);
-        }
-        if (this.audioContext?.state === 'running') {
-          window.removeEventListener('pointerdown', tryResume);
-          window.removeEventListener('keydown', tryResume);
-        }
-      };
-      window.addEventListener('pointerdown', tryResume);
-      window.addEventListener('keydown', tryResume);
-    }
+    this.ensureContextRunning();
 
     this.source = this.audioContext.createMediaStreamSource(this.stream);
 
-    // ScriptProcessorNode (4096-frame buffer) — universally supported and
-    // dependency-free. (AudioWorklet is the modern alternative; swap later if
-    // latency becomes an issue.)
-    this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-    this.processor.onaudioprocess = (e) => this.handleAudio(e);
+    try {
+      // AudioWorklet: modern replacement for ScriptProcessorNode (which is
+      // deprecated and logs a Chrome warning). Runs the PCM conversion on a
+      // dedicated audio thread; the main thread just ships buffers to the WS.
+      await this.setupWorklet(this.audioContext);
+    } catch (err) {
+      console.warn('[DeepgramAdapter] AudioWorklet unavailable, falling back to ScriptProcessorNode:', err);
+      this.setupScriptProcessor(this.audioContext);
+    }
+  }
 
-    this.source.connect(this.processor);
-    this.processor.connect(this.audioContext.destination);
+  /**
+   * Chrome autoplay policy: an AudioContext created OUTSIDE a user gesture
+   * starts in the 'suspended' state. A suspended context fires ZERO audio
+   * callbacks, so no PCM ever reaches Deepgram even though the WS session
+   * looks connected (Metadata arrives, captions never do). getUserMedia is
+   * async, so the gesture that triggered the mic prompt has usually expired
+   * by the time we get here. Resume now, retry every 500ms until running, and
+   * resume on any user click/keypress — the user is actively clicking the UI.
+   */
+  private ensureContextRunning(): void {
+    if (!this.audioContext) return;
+    const tryResume = () => {
+      if (this.audioContext?.state === 'suspended') {
+        void this.audioContext.resume().catch(() => undefined);
+      }
+    };
+    tryResume();
+    const iv = setInterval(() => {
+      if (!this.audioContext || this.audioContext.state === 'running') {
+        clearInterval(iv);
+      } else {
+        tryResume();
+      }
+    }, 500);
+    window.addEventListener('pointerdown', tryResume);
+    window.addEventListener('keydown', tryResume);
+    // Cleanup listeners when the adapter stops; interval self-cleans once running.
+    const cleanup = () => {
+      clearInterval(iv);
+      window.removeEventListener('pointerdown', tryResume);
+      window.removeEventListener('keydown', tryResume);
+    };
+    const onStop = () => cleanup();
+    // Hook into stop(): store cleanup so stop() can call it.
+    (this as any).__resumeCleanup = onStop;
+  }
+
+  private async setupWorklet(ctx: AudioContext): Promise<void> {
+    const workletCode = `
+      class PcmBridgeProcessor extends AudioWorkletProcessor {
+        process(inputs) {
+          const input = inputs[0];
+          if (input && input[0]) {
+            const channel = input[0];
+            const buf = new Float32Array(channel.length);
+            buf.set(channel);
+            this.port.postMessage(buf, [buf.buffer]);
+          }
+          return true;
+        }
+      }
+      registerProcessor('pcm-bridge', PcmBridgeProcessor);
+    `;
+    const url = URL.createObjectURL(new Blob([workletCode], { type: 'application/javascript' }));
+    try {
+      await ctx.audioWorklet.addModule(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+
+    this.workletNode = new AudioWorkletNode(ctx, 'pcm-bridge', {
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+      outputChannelCount: [1],
+    });
+    this.workletNode.port.onmessage = (e) => this.handlePcm(e.data as Float32Array);
+    this.source?.connect(this.workletNode);
+  }
+
+  private setupScriptProcessor(ctx: AudioContext): void {
+    this.processor = ctx.createScriptProcessor(4096, 1, 1);
+    this.processor.onaudioprocess = (e) => this.handleAudio(e);
+    this.source?.connect(this.processor);
+    this.processor.connect(ctx.destination);
   }
 
   /** Convert a Float32 audio buffer to PCM16 and send it upstream. */
@@ -318,9 +375,43 @@ export class DeepgramAdapter implements STTAdapter {
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
     this.ws.send(pcm.buffer);
+    this.reportLevel(input);
+  }
+
+  /** Float32 chunk from the AudioWorklet — convert to PCM16 and send. */
+  private handlePcm(input: Float32Array): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    if (this.muted) return;
+    const pcm = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+      const s = Math.max(-1, Math.min(1, input[i]));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    this.ws.send(pcm.buffer);
+    this.reportLevel(input);
+  }
+
+  /** Throttled RMS-ish level (0..1) so the UI can show live mic input. */
+  private reportLevel(input: Float32Array): void {
+    const now = Date.now();
+    if (now - this.lastLevelReport < 120) return;
+    this.lastLevelReport = now;
+    let sum = 0;
+    for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+    const rms = Math.sqrt(sum / input.length);
+    this.onLevel?.(Math.min(1, rms * 8));
   }
 
   private teardownMedia(): void {
+    if (this.workletNode) {
+      try {
+        this.workletNode.port.onmessage = null;
+        this.workletNode.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.workletNode = null;
+    }
     if (this.processor) {
       this.processor.disconnect();
       this.processor.onaudioprocess = null;
@@ -337,6 +428,12 @@ export class DeepgramAdapter implements STTAdapter {
     if (this.stream) {
       this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
+    }
+    // Detach the resume retry loop / gesture listeners.
+    const cleanup = (this as any).__resumeCleanup;
+    if (typeof cleanup === 'function') {
+      cleanup();
+      (this as any).__resumeCleanup = undefined;
     }
   }
 }

@@ -14,6 +14,9 @@ interface UseSttOptions {
    *  permission denied, etc.) so the UI can show why nothing is being
    *  transcribed. */
   onError?: (message: string) => void;
+  /** Live mic input level (0..1), throttled to ~10/sec — powers the mic
+   *  level meter so users can SEE audio reaching the app. */
+  onLevel?: (level: number) => void;
   sendCaption: (speakerId: string, text: string, isFinal: boolean) => void;
 }
 
@@ -28,7 +31,7 @@ interface UseSttResult {
  * AND the room is connected; stops it otherwise. Wires utterances to the
  * server via caption:event.
  */
-export function useStt({ enabled, connected, localParticipantId, muted, onError, sendCaption }: UseSttOptions): UseSttResult {
+export function useStt({ enabled, connected, localParticipantId, muted, onError, onLevel, sendCaption }: UseSttOptions): UseSttResult {
   const adapterRef = useRef<STTAdapter | null>(null);
   const [sttEnabled, setSttEnabled] = useState(false);
 
@@ -37,6 +40,9 @@ export function useStt({ enabled, connected, localParticipantId, muted, onError,
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+
+  const onLevelRef = useRef(onLevel);
+  onLevelRef.current = onLevel;
 
   const startAdapter = useCallback(() => {
     if (adapterRef.current) return;
@@ -48,6 +54,7 @@ export function useStt({ enabled, connected, localParticipantId, muted, onError,
       console.warn('[useStt] adapter error:', message);
       onErrorRef.current?.(message);
     };
+    adapter.onLevel = (level) => onLevelRef.current?.(level);
     adapter.start();
     adapterRef.current = adapter;
     setSttEnabled(true);

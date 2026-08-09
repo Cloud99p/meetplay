@@ -11,6 +11,10 @@ export interface STTAdapter {
    *  permission denied). Lets the UI surface why nothing is being
    *  transcribed instead of failing silently. */
   onError?: (message: string) => void;
+  /** Live mic input level (0..1), throttled to ~10/sec. Lets the UI show a
+   *  level meter so users can SEE that audio is actually reaching the app
+   *  (a silent AudioContext produces zero frames). */
+  onLevel?: (level: number) => void;
   start(): void;
   stop(): void;
   /**

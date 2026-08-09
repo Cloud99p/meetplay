@@ -27,6 +27,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [consentShown, setConsentShown] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [sttError, setSttError] = useState<string | null>(null);
+  const [sttLevel, setSttLevel] = useState(0);
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
@@ -53,6 +54,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
     localParticipantId: state.participantId ?? undefined,
     muted: micMuted,
     onError: setSttError,
+    onLevel: setSttLevel,
     sendCaption: actions.sendCaption,
   });
 
@@ -329,6 +331,31 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
           {/* Captions overlay */}
           <CaptionsOverlay captions={state.captions} visible={state.transcriptionEnabled} />
+
+          {/* Mic level meter — live proof audio is reaching the app. When the
+              STT adapter's AudioContext is running and the mic is open, these
+              bars dance as you speak. Flat bars + no captions = mic/capture
+              problem; dancing bars + no captions = Deepgram/network problem. */}
+          {state.transcriptionEnabled && !micMuted && (
+            <div
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-end gap-[3px] h-5 px-2.5 py-1 rounded-full bg-caption-bg/90 backdrop-blur-sm z-30"
+              title={sttLevel > 0.02 ? 'Microphone input detected' : 'Waiting for microphone input…'}
+            >
+              {[0.35, 0.6, 0.45, 0.75, 0.5].map((h, i) => {
+                const active = sttLevel > 0.02 && sttLevel > h * 0.7;
+                return (
+                  <span
+                    key={i}
+                    className="w-[3px] rounded-full transition-all duration-100"
+                    style={{
+                      height: `${Math.max(4, h * 20 * (0.35 + Math.min(1, sttLevel * 3)))}px`,
+                      backgroundColor: active ? '#22c55e' : 'rgba(148,163,184,0.5)',
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
 
           {/* REC pill — visible to everyone while recording */}
           {state.recording && (
