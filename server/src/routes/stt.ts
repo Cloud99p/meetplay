@@ -42,7 +42,7 @@ export async function sttRoutes(app: FastifyInstance) {
       model,
       encoding: 'linear16',
       sample_rate: '16000',
-      language: 'en',
+      language: cfg.deepgramLanguage,
       // smart_format is deliberately OFF: it post-processes numbers/dates
       // ("twenty five" -> "25") which breaks the word-count games and adds
       // latency on the streaming path.
@@ -53,6 +53,11 @@ export async function sttRoutes(app: FastifyInstance) {
       params.set('eot_threshold', '0.7');
       params.set('eot_timeout_ms', '5000');
       params.set('vad_events', 'true');
+      // punctuate keeps transcripts readable ("intonation" — sentence breaks
+      // and commas) without affecting word counts; interim_results keeps the
+      // live Update events flowing for the caption overlay.
+      params.set('punctuate', 'true');
+      params.set('interim_results', 'true');
     } else {
       // v1: diarized multi-speaker (required for "Who Said That?" game).
       // Options mirror Deepgram's canonical streaming example:

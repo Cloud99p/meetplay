@@ -151,10 +151,11 @@ export class DeepgramAdapter implements STTAdapter {
       }
       this.reconnectAttempts = 0;
       // Tell the server which Deepgram config to use. The server holds the key.
-      // Keep this MINIMAL and format-agnostic: the model (nova-2 vs flux) and
-      // model-specific params (diarize, endpointing, eot_*) are owned by the
-      // server (DEEPGRAM_MODEL env) via the upstream URL. Sending v1-only
-      // fields (diarize/endpointing/smart_format) to a v2 Flux endpoint risks
+      // Keep this MINIMAL and format-agnostic: the model (nova-2 vs flux),
+      // language variant, and model-specific params (diarize, endpointing,
+      // eot_*, punctuate) are owned by the server (DEEPGRAM_MODEL /
+      // DEEPGRAM_LANGUAGE env) via the upstream URL. Sending v1-only fields
+      // (diarize/endpointing/smart_format) to a v2 Flux endpoint risks
       // rejection or silent override.
       this.ws?.send(
         JSON.stringify({
@@ -162,7 +163,6 @@ export class DeepgramAdapter implements STTAdapter {
           encoding: 'linear16',
           sample_rate: 16000,
           channels: 1,
-          language: 'en',
           interim_results: true,
           vad_events: true,
         }),

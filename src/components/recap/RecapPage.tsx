@@ -3,7 +3,7 @@ import * as api from '../../lib/api';
 import type { RecapData } from '../../lib/api';
 import {
   FiClock, FiMessageSquare, FiAward, FiUsers, FiChevronLeft,
-  FiLink, FiCheck, FiSearch, FiStar, FiMessageCircle,
+  FiLink, FiCheck, FiSearch, FiStar, FiMessageCircle, FiDownload,
 } from 'react-icons/fi';
 
 interface Props {
@@ -58,6 +58,41 @@ export default function RecapPage({ roomId, onBack }: Props) {
       (t) => t.text.toLowerCase().includes(q) || t.participantName.toLowerCase().includes(q)
     );
   }, [recap, search]);
+
+  /**
+   * Full meeting transcript as one downloadable text document (opens fine in
+   * Word/Google Docs too). Client-side Blob — no server round trip needed.
+   */
+  const downloadTranscript = () => {
+    if (!recap?.transcript?.length) return;
+    const lines: string[] = [
+      'MEETPLAY MEETING TRANSCRIPT',
+      '===========================',
+      `Room: ${recap.room.name ?? 'Untitled meeting'}`,
+      `Date: ${new Date(recap.room.createdAt).toLocaleString()}`,
+      `Duration: ${formatDuration(recap.room.duration)}`,
+      `Participants: ${recap.participants.map((p) => p.name).join(', ') || '—'}`,
+      `Entries: ${recap.transcript.length}`,
+      '',
+    ];
+    for (const t of recap.transcript) {
+      lines.push(`[${formatTime(t.createdAt)}] ${t.participantName}: ${t.text}`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const slug =
+      (recap.room.name ?? 'meeting')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '') || 'meeting';
+    a.href = url;
+    a.download = `meetplay-transcript-${slug}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -205,6 +240,13 @@ export default function RecapPage({ roomId, onBack }: Props) {
                 {search && (
                   <span className="text-[10px] text-muted">{filteredTranscript.length} matches</span>
                 )}
+                <button
+                  onClick={downloadTranscript}
+                  className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 flex-shrink-0"
+                  title="Download the full transcript as a text document"
+                >
+                  <FiDownload className="w-3.5 h-3.5" /> Download .txt
+                </button>
               </div>
               <div className="max-h-80 overflow-y-auto divide-y divide-border">
                 {filteredTranscript.length > 0 ? (
@@ -224,7 +266,8 @@ export default function RecapPage({ roomId, onBack }: Props) {
             <div className="bg-bg-surface border border-border rounded-xl p-6 text-center">
               <FiMessageSquare className="w-8 h-8 text-muted/40 mx-auto mb-2" />
               <p className="text-sm text-muted">No transcript available for this meeting.</p>
-              <p className="text-xs text-muted/60 mt-1">Transcripts are only recorded when captions are enabled.</p>
+              <p className="text-xs text-muted/60 mt-1">Transcripts are only recorded when captions are enabled during the meeting.</p>
+              <p className="text-xs text-muted/60 mt-1">Meetings held before the STT fix (Aug 9) have no transcript data.</p>
             </div>
           )}
         </section>

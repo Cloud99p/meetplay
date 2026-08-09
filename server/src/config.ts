@@ -22,6 +22,7 @@ export interface ServerConfig {
   jwtSecret: string;
   deepgramApiKey: string;
   deepgramModel: string;
+  deepgramLanguage: string;
   databaseUrl?: string;
   useMemoryDb: boolean;
   rateLimitMax: number;
@@ -78,6 +79,11 @@ export function loadConfig(): ServerConfig {
     // and the server remaps speakers to the sender). nova-2 stays supported
     // via DEEPGRAM_MODEL for the diarized "Who Said That?" path.
     deepgramModel: env.DEEPGRAM_MODEL?.trim() ?? 'flux-general-en',
+    // Language/variant for transcription. Deepgram supports regional English
+    // variants — e.g. en-NG (Nigerian English), en-GB, en-US, en-IN — which
+    // noticeably improve word accuracy for accented speech. Default 'en'
+    // (generic) unless DEEPGRAM_LANGUAGE is set.
+    deepgramLanguage: env.DEEPGRAM_LANGUAGE?.trim() ?? 'en',
     databaseUrl: env.DATABASE_URL?.trim() || undefined,
     useMemoryDb: !env.DATABASE_URL || env.USE_MEMORY_DB === '1',
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 120),
