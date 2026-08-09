@@ -3,6 +3,8 @@ export interface Utterance {
   text: string;
   timestamp: number;
   isFinal: boolean;
+  /** 0..1 transcription confidence (flux: end_of_turn_confidence; v1: avg word confidence). */
+  confidence?: number;
 }
 
 export interface STTAdapter {

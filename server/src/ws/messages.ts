@@ -10,6 +10,8 @@ export const CaptionEventPayload = z.object({
   speakerId: z.string(),
   text: z.string(),
   isFinal: z.boolean().optional(),
+  /** 0..1 transcription confidence (flux end_of_turn_confidence / v1 avg word confidence). */
+  confidence: z.number().optional(),
 });
 export const GameSubmitPayload = z.object({
   roundId: z.string().uuid(),
@@ -64,7 +66,7 @@ export type ServerMessage =
   | { type: 'emoji:received'; payload: { participantId: string; participantName: string; emoji: string } }
   | { type: 'hand:raised'; payload: { participantId: string; participantName: string } }
   | { type: 'hand:lowered'; payload: { participantId: string } }
-  | { type: 'caption:event'; payload: { speakerId: string; participantName: string | null; text: string; isFinal: boolean; timestamp: number } }
+  | { type: 'caption:event'; payload: { speakerId: string; participantName: string | null; text: string; isFinal: boolean; timestamp: number; confidence?: number } }
   | { type: 'game:round:open'; payload: { roundId: string; gameType: string; question: unknown; timeLimit: number } }
   | { type: 'game:start:rejected'; payload: { reason: string } }
   | { type: 'game:round:locked'; payload: { roundId: string } }

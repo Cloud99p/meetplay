@@ -36,6 +36,7 @@ export interface MeetingState {
     speakerName: string | null;
     text: string;
     isFinal: boolean;
+    confidence?: number;
     timestamp: number;
   }>;
   gameQuiet: boolean;
@@ -60,7 +61,7 @@ export interface MeetingActions {
   removeParticipant: (targetId: string) => void;
   lockRoom: () => void;
   leave: () => void;
-  sendCaption: (speakerId: string, text: string, isFinal: boolean) => void;
+  sendCaption: (speakerId: string, text: string, isFinal: boolean, confidence?: number) => void;
   submitAnswer: (roundId: string, answer: unknown) => void;
   startGame: (gameType: StartableGameType) => void;
   placeMarketBet: (guess: number) => void;
@@ -913,8 +914,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     clearSessionSnapshot();
   }, [ws, liveKitRoom]);
 
-  const sendCaption = useCallback((speakerId: string, text: string, isFinal: boolean) => {
-    ws.send('caption:event', { speakerId, text, isFinal });
+  const sendCaption = useCallback((speakerId: string, text: string, isFinal: boolean, confidence?: number) => {
+    ws.send('caption:event', { speakerId, text, isFinal, confidence });
   }, [ws]);
 
   // Quiet mode: watch LiveKit for any active screen-share track.

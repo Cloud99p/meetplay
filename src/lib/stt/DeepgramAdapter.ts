@@ -199,12 +199,12 @@ export class DeepgramAdapter implements STTAdapter {
    *     NEW tail words
    *   - full rewrite / new turn -> emit everything
    */
-  private emitFinalTurnText(text: string): void {
+  private emitFinalTurnText(text: string, confidence?: number): void {
     if (!text) return;
     const last = this.lastFinalText;
     this.lastFinalText = text;
     if (!last) {
-      this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true });
+      this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true, confidence });
       return;
     }
     const strip = (s: string) =>
@@ -217,11 +217,11 @@ export class DeepgramAdapter implements STTAdapter {
     if (i > 0 && i < curr.length) {
       // Resumed turn: eager already counted the shared prefix — emit the tail.
       const tail = curr.slice(i).join(' ');
-      this.onUtterance?.({ speakerId: 'local', text: tail, timestamp: Date.now(), isFinal: true });
+      this.onUtterance?.({ speakerId: 'local', text: tail, timestamp: Date.now(), isFinal: true, confidence });
       return;
     }
     if (i > 0 && i === curr.length) return; // new text is a prefix of last — fully counted
-    this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true });
+    this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true, confidence });
   }
 
   private handleMessage(data: unknown): void {
@@ -261,7 +261,7 @@ export class DeepgramAdapter implements STTAdapter {
         // trailing Update with the same text right after EOT, which would
         // otherwise re-show the caption as live after it finalized.
         this.lastInterimText = text;
-        this.emitFinalTurnText(text);
+        this.emitFinalTurnText(text, msg.end_of_turn_confidence as number | undefined);
         return;
       }
       if (event === 'Update' || event === 'TurnUpdate') {
@@ -290,20 +290,26 @@ export class DeepgramAdapter implements STTAdapter {
 
     if (isFinal) {
       // Final result: group words by speaker and emit one utterance per speaker.
-      const bySpeaker = new Map<number, string[]>();
+      const bySpeaker = new Map<number, { words: string[]; confs: number[] }>();
       for (const w of alt.words ?? []) {
         const spk = typeof w.speaker === 'number' ? w.speaker : 0;
-        if (!bySpeaker.has(spk)) bySpeaker.set(spk, []);
-        bySpeaker.get(spk)!.push(w.word);
+        if (!bySpeaker.has(spk)) bySpeaker.set(spk, { words: [], confs: [] });
+        const entry = bySpeaker.get(spk)!;
+        entry.words.push(w.word);
+        if (typeof w.confidence === 'number') entry.confs.push(w.confidence);
       }
-      for (const [spk, words] of bySpeaker) {
-        const text = words.join(' ').trim();
+      for (const [spk, entry] of bySpeaker) {
+        const text = entry.words.join(' ').trim();
         if (!text) continue;
+        const confidence = entry.confs.length
+          ? entry.confs.reduce((a, b) => a + b, 0) / entry.confs.length
+          : undefined;
         this.onUtterance?.({
           speakerId: `speaker-${spk}`,
           text,
           timestamp: Date.now(),
           isFinal: true,
+          confidence,
         });
       }
     } else {
@@ -316,6 +322,7 @@ export class DeepgramAdapter implements STTAdapter {
         text,
         timestamp: Date.now(),
         isFinal: false,
+        confidence: typeof alt.confidence === 'number' ? alt.confidence : undefined,
       });
     }
   }

@@ -290,6 +290,7 @@ async function handleMessage(
       const text = String(payload.text ?? '').trim();
       if (!text) return;
       const isFinal = Boolean(payload.isFinal);
+      const confidence = typeof payload.confidence === 'number' ? payload.confidence : undefined;
 
       // Resolve the REAL speaker. Deepgram emits synthetic diarization ids
       // ('speaker-0', 'speaker-1', 'unknown'), and WebSpeech emits 'local'.
@@ -312,7 +313,7 @@ async function handleMessage(
       }
 
       console.log(
-        `[caption] room=${roomId.slice(0, 8)} sender=${sender.name} rawSpeaker=${rawSpeakerId} -> speaker=${speakerId} final=${isFinal} text="${text.slice(0, 150)}"`,
+        `[caption] room=${roomId.slice(0, 8)} sender=${sender.name} rawSpeaker=${rawSpeakerId} -> speaker=${speakerId} final=${isFinal} conf=${confidence?.toFixed(2) ?? '-'} text="${text.slice(0, 150)}"`,
       );
 
       // Persist final utterances (synthetic mock IDs may fail FK — that's OK)
@@ -334,6 +335,7 @@ async function handleMessage(
           participantName: speakerName,
           text,
           isFinal,
+          confidence,
           timestamp: Date.now(),
         },
       });

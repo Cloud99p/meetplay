@@ -17,7 +17,7 @@ interface UseSttOptions {
   /** Live mic input level (0..1), throttled to ~10/sec — powers the mic
    *  level meter so users can SEE audio reaching the app. */
   onLevel?: (level: number) => void;
-  sendCaption: (speakerId: string, text: string, isFinal: boolean) => void;
+  sendCaption: (speakerId: string, text: string, isFinal: boolean, confidence?: number) => void;
 }
 
 interface UseSttResult {
@@ -48,7 +48,7 @@ export function useStt({ enabled, connected, localParticipantId, muted, onError,
     if (adapterRef.current) return;
     const adapter = createSttAdapter(localParticipantId);
     adapter.onUtterance = (utterance) => {
-      sendCaptionRef.current(utterance.speakerId, utterance.text, utterance.isFinal);
+      sendCaptionRef.current(utterance.speakerId, utterance.text, utterance.isFinal, utterance.confidence);
     };
     adapter.onError = (message) => {
       console.warn('[useStt] adapter error:', message);

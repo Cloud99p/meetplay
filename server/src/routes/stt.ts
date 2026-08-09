@@ -133,6 +133,25 @@ export async function sttRoutes(app: FastifyInstance) {
               `[stt:${connId}] Deepgram ${isFinal ? 'FINAL' : 'interim'} transcript="${preview}" words=${alt?.words?.length ?? 0} (results#${resultsCount})`,
             );
           }
+        } else if (msg.type === 'TurnInfo' || typeof msg.event === 'string') {
+          // v2 Flux: turn lifecycle. Log EOT events with turn_index + EOT
+          // confidence (also forwarded to the client below); Updates are
+          // noisy so log them at most once per 3s.
+          const event = msg.event ?? msg.type;
+          const transcript = (msg.transcript ?? '').slice(0, 120);
+          if (event === 'Update' || event === 'TurnUpdate') {
+            const now = Date.now();
+            if (now - lastTextLog > 3000) {
+              lastTextLog = now;
+              console.log(`[stt:${connId}] Update transcript="${transcript}"`);
+            }
+          } else {
+            const conf = msg.end_of_turn_confidence;
+            const confStr = typeof conf === 'number' ? conf.toFixed(2) : '-';
+            console.log(
+              `[stt:${connId}] ${event} turn=${msg.turn_index ?? '?'} confidence=${confStr} transcript="${transcript}"`,
+            );
+          }
         } else if (msg.type === 'SpeechStarted') {
           console.log(`[stt:${connId}] Deepgram SpeechStarted`);
         }
