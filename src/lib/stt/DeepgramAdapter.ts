@@ -8,7 +8,9 @@ import type { STTAdapter, Utterance } from './STTAdapter';
  * Flow:
  *   browser mic -> PCM16 16kHz mono -> WS /api/stt (same origin)
  *   -> server forwards with Authorization: Token <key> -> Deepgram Live API
- *   -> diarized Results JSON streamed back to this adapter.
+ *   -> Results JSON (v1 diarized) or TurnInfo events (v2 Flux) streamed back
+ *      to this adapter. Default model is flux-general-en (v2, low latency,
+ *      turn-based); nova-2 (v1 diarized) stays supported via DEEPGRAM_MODEL.
  *
  * Graceful degradation: if the socket fails or closes unexpectedly, we
  * reconnect with exponential backoff. If the adapter is stopped, everything
@@ -31,6 +33,7 @@ export class DeepgramAdapter implements STTAdapter {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastInterimText = '';
+  private lastFinalText = '';
   private lastLevelReport = 0;
 
   // Deepgram is configured (client + server) for linear16 @ 16000 Hz.
@@ -40,6 +43,14 @@ export class DeepgramAdapter implements STTAdapter {
   // empty. captureRatio = nativeRate / 16000 (1 when the context honors it).
   private captureRatio = 1;
   private resampleAcc = 0;
+
+  // Audio batching: the AudioWorklet fires ~125 frames/sec at 16 kHz (128
+  // samples = 8 ms). Sending each frame as its own WebSocket message floods
+  // the proxy with tiny frames and adds jitter to the upstream stream.
+  // Accumulate PCM16 and flush in ~50 ms blocks (800 samples @ 16 kHz).
+  private pcmChunks: Int16Array[] = [];
+  private pcmLen = 0;
+  private readonly PCM_FLUSH_SAMPLES = 800;
 
   start(): void {
     if (this.running) return;
@@ -56,6 +67,9 @@ export class DeepgramAdapter implements STTAdapter {
       this.reconnectTimer = null;
     }
     this.teardownMedia();
+    // Ship any buffered tail audio upstream before closing the session so
+    // Deepgram can finalize the last utterance.
+    this.flushPcm();
     if (this.ws) {
       try {
         const ws = this.ws;
@@ -91,6 +105,10 @@ export class DeepgramAdapter implements STTAdapter {
     this.muted = muted;
     if (muted) {
       this.onLevel?.(0);
+      // Drop any audio captured before the mute — it should not be
+      // transcribed after the user muted.
+      this.pcmChunks = [];
+      this.pcmLen = 0;
       // ScriptProcessor path: stop pulling audio while muted to save CPU.
       // (Worklet path: the muted guard in handlePcm already drops frames.)
       if (this.processor) this.processor.onaudioprocess = null;
@@ -133,19 +151,19 @@ export class DeepgramAdapter implements STTAdapter {
       }
       this.reconnectAttempts = 0;
       // Tell the server which Deepgram config to use. The server holds the key.
+      // Keep this MINIMAL and format-agnostic: the model (nova-2 vs flux) and
+      // model-specific params (diarize, endpointing, eot_*) are owned by the
+      // server (DEEPGRAM_MODEL env) via the upstream URL. Sending v1-only
+      // fields (diarize/endpointing/smart_format) to a v2 Flux endpoint risks
+      // rejection or silent override.
       this.ws?.send(
         JSON.stringify({
           type: 'Configure',
           encoding: 'linear16',
           sample_rate: 16000,
           channels: 1,
-          model: 'nova-2',
           language: 'en',
-          smart_format: true,
           interim_results: true,
-          endpointing: 10,
-          diarize: true,
-          punctuate: true,
           vad_events: true,
         }),
       );
@@ -194,11 +212,16 @@ export class DeepgramAdapter implements STTAdapter {
       const text = (msg.transcript ?? '').trim();
       if (event === 'StartOfTurn') {
         this.lastInterimText = '';
+        this.lastFinalText = '';
         return;
       }
       if (event === 'EndOfTurn' || event === 'EagerEndOfTurn') {
         this.lastInterimText = '';
-        if (text) {
+        // Flux fires EagerEndOfTurn (fast, at the turn boundary) and then a
+        // refined EndOfTurn once eot_timeout elapses. If the text is unchanged,
+        // skip the duplicate so games/word counts don't double count a turn.
+        if (text && text !== this.lastFinalText) {
+          this.lastFinalText = text;
           this.onUtterance?.({
             speakerId: 'local',
             text,
@@ -407,6 +430,30 @@ export class DeepgramAdapter implements STTAdapter {
     return oi === outLen ? out : out.subarray(0, oi);
   }
 
+  /** Batch PCM16 and ship it upstream in ~50 ms blocks. */
+  private pushPcm(pcm: Int16Array): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.pcmChunks.push(pcm);
+    this.pcmLen += pcm.length;
+    if (this.pcmLen >= this.PCM_FLUSH_SAMPLES) this.flushPcm();
+  }
+
+  private flushPcm(): void {
+    if (this.pcmLen === 0) return;
+    const chunks = this.pcmChunks;
+    const total = this.pcmLen;
+    this.pcmChunks = [];
+    this.pcmLen = 0;
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    const buf = new Int16Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      buf.set(c, off);
+      off += c.length;
+    }
+    this.ws.send(buf.buffer);
+  }
+
   /** Convert a Float32 audio buffer to PCM16 and send it upstream. */
   private handleAudio(e: AudioProcessingEvent): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
@@ -419,7 +466,7 @@ export class DeepgramAdapter implements STTAdapter {
       const s = Math.max(-1, Math.min(1, resampled[i]));
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
-    this.ws.send(pcm.buffer);
+    this.pushPcm(pcm);
     this.reportLevel(input);
   }
 
@@ -434,7 +481,7 @@ export class DeepgramAdapter implements STTAdapter {
       const s = Math.max(-1, Math.min(1, resampled[i]));
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
-    this.ws.send(pcm.buffer);
+    this.pushPcm(pcm);
     this.reportLevel(input);
   }
 

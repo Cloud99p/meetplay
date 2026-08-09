@@ -72,7 +72,12 @@ export function loadConfig(): ServerConfig {
     livekitHost: env.LIVEKIT_HOST?.trim() ?? 'localhost:7880',
     jwtSecret: jwtSecret ?? 'meetplay-dev-secret', // dev/demo only — prod throws above
     deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() ?? '',
-    deepgramModel: env.DEEPGRAM_MODEL?.trim() ?? 'nova-2',
+    // flux-general-en (v2) is the default: turn-based with EagerEndOfTurn,
+    // much lower latency than nova-2 during fast/continuous speech, and
+    // diarization is not needed (every client transcribes only its own mic
+    // and the server remaps speakers to the sender). nova-2 stays supported
+    // via DEEPGRAM_MODEL for the diarized "Who Said That?" path.
+    deepgramModel: env.DEEPGRAM_MODEL?.trim() ?? 'flux-general-en',
     databaseUrl: env.DATABASE_URL?.trim() || undefined,
     useMemoryDb: !env.DATABASE_URL || env.USE_MEMORY_DB === '1',
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 120),

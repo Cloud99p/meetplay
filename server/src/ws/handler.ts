@@ -338,9 +338,15 @@ async function handleMessage(
         },
       });
 
-      // Forward to game engine
-      const engine = getGameEngine(roomId);
-      engine.addUtterance({ speakerId, text, timestamp: Date.now() });
+      // Forward FINAL utterances to the game engine only. Deepgram interims
+      // resend the FULL accumulated transcript each time, so feeding them to
+      // the engine would double/triple-count every word during continuous
+      // speech (Word Count Bet, Bingo marks, speaker stats, recap pool).
+      // Interims still broadcast above for the live caption overlay.
+      if (isFinal) {
+        const engine = getGameEngine(roomId);
+        engine.addUtterance({ speakerId, text, timestamp: Date.now() });
+      }
       break;
     }
 

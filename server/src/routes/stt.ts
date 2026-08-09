@@ -43,7 +43,9 @@ export async function sttRoutes(app: FastifyInstance) {
       encoding: 'linear16',
       sample_rate: '16000',
       language: 'en',
-      smart_format: 'true',
+      // smart_format is deliberately OFF: it post-processes numbers/dates
+      // ("twenty five" -> "25") which breaks the word-count games and adds
+      // latency on the streaming path.
     });
 
     if (isFlux) {
@@ -54,14 +56,17 @@ export async function sttRoutes(app: FastifyInstance) {
     } else {
       // v1: diarized multi-speaker (required for "Who Said That?" game).
       // Options mirror Deepgram's canonical streaming example:
-      //   model nova-2, language en, smart_format, interim_results,
-      //   endpointing 10ms, diarize, punctuate, vad_events.
+      //   model nova-2, language en, interim_results, endpointing 10ms,
+      //   diarize, punctuate, vad_events. no_delay returns results as soon
+      //   as they're ready instead of waiting for a better hypothesis —
+      //   keeps live captions/word counts tight during fast speech.
       params.set('diarize', 'true');
       params.set('interim_results', 'true');
       params.set('punctuate', 'true');
       params.set('endpointing', '10');
       params.set('vad_events', 'true');
       params.set('channels', '1');
+      params.set('no_delay', 'true');
     }
 
     const endpoint = isFlux ? 'wss://api.deepgram.com/v2/listen' : 'wss://api.deepgram.com/v1/listen';
