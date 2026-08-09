@@ -56,7 +56,10 @@ export async function sttRoutes(app: FastifyInstance) {
       // EagerEndOfTurn at sentence boundaries during continuous speech;
       // eot_timeout_ms caps silence before a forced EndOfTurn.
       params.set('eot_threshold', '0.7');
-      params.set('eager_eot_threshold', '0.4');
+      // 0.6 (docs: 0.6-0.8 = conservative): fewer false early EOTs that cut
+      // sentences off mid-speech. 0.4 caused truncated finals like
+      // "And why is he sending to".
+      params.set('eager_eot_threshold', '0.6');
       params.set('eot_timeout_ms', '3000');
     } else {
       // v1: diarized multi-speaker (required for "Who Said That?" game).

@@ -189,6 +189,41 @@ export class DeepgramAdapter implements STTAdapter {
     }, delay);
   }
 
+  /**
+   * Emit a final turn text exactly once. Flux can fire EagerEndOfTurn and a
+   * refined EndOfTurn for the same turn; if the turn was RESUMED, the final
+   * is an extension of the eager text. Emitting both would double count
+   * every word in the games/recap. Strategy:
+   *   - identical text          -> already counted, skip
+   *   - final extends the eager text (shared word prefix) -> emit only the
+   *     NEW tail words
+   *   - full rewrite / new turn -> emit everything
+   */
+  private emitFinalTurnText(text: string): void {
+    if (!text) return;
+    const last = this.lastFinalText;
+    this.lastFinalText = text;
+    if (!last) {
+      this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true });
+      return;
+    }
+    const strip = (s: string) =>
+      s.toLowerCase().replace(/[^a-z0-9'\s-]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const prev = strip(last);
+    const curr = strip(text);
+    if (prev.join(' ') === curr.join(' ')) return; // exact duplicate
+    let i = 0;
+    while (i < prev.length && i < curr.length && prev[i] === curr[i]) i++;
+    if (i > 0 && i < curr.length) {
+      // Resumed turn: eager already counted the shared prefix — emit the tail.
+      const tail = curr.slice(i).join(' ');
+      this.onUtterance?.({ speakerId: 'local', text: tail, timestamp: Date.now(), isFinal: true });
+      return;
+    }
+    if (i > 0 && i === curr.length) return; // new text is a prefix of last — fully counted
+    this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true });
+  }
+
   private handleMessage(data: unknown): void {
     if (typeof data !== 'string') return;
     let msg: any;
@@ -207,28 +242,26 @@ export class DeepgramAdapter implements STTAdapter {
     if (msg.type === 'TurnInfo' || typeof msg.event === 'string') {
       const event = msg.event ?? msg.type;
       const text = (msg.transcript ?? '').trim();
-      if (event === 'StartOfTurn' || event === 'TurnResumed') {
-        // TurnResumed: an eager end-of-turn was cancelled because the speaker
-        // kept talking — the eventual EndOfTurn will carry the full resumed
-        // turn text, so forget the eager snapshot to avoid a stale comparison.
+      if (event === 'StartOfTurn') {
+        // Fresh turn: forget the previous turn's snapshots.
         this.lastInterimText = '';
         this.lastFinalText = '';
         return;
       }
-      if (event === 'EndOfTurn' || event === 'EagerEndOfTurn') {
+      if (event === 'TurnResumed') {
+        // Eager end-of-turn was cancelled — the speaker kept going. Live
+        // interims resume (reset lastInterimText) but KEEP lastFinalText so
+        // the eventual EndOfTurn can be diffed against the eager snapshot
+        // and only the NEW tail words get counted.
         this.lastInterimText = '';
-        // Flux fires EagerEndOfTurn (fast, at the turn boundary) and then a
-        // refined EndOfTurn once eot_timeout elapses. If the text is unchanged,
-        // skip the duplicate so games/word counts don't double count a turn.
-        if (text && text !== this.lastFinalText) {
-          this.lastFinalText = text;
-          this.onUtterance?.({
-            speakerId: 'local',
-            text,
-            timestamp: Date.now(),
-            isFinal: true,
-          });
-        }
+        return;
+      }
+      if (event === 'EndOfTurn' || event === 'EagerEndOfTurn') {
+        // Keep lastInterimText equal to this turn's text: Deepgram sends a
+        // trailing Update with the same text right after EOT, which would
+        // otherwise re-show the caption as live after it finalized.
+        this.lastInterimText = text;
+        this.emitFinalTurnText(text);
         return;
       }
       if (event === 'Update' || event === 'TurnUpdate') {
