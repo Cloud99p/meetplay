@@ -59,6 +59,11 @@ export default defineConfig(() => ({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        // The STT pipeline uses a WebSocket to same-origin /api/stt
+        // (browser mic -> PCM16 -> WS -> Deepgram proxy). Without ws: true
+        // the Vite proxy swallows the upgrade and the Deepgram adapter's
+        // socket never opens, so captions stay empty.
+        ws: true,
       },
       // Health check (used by Railway/paas readiness probes)
       '/health': {
