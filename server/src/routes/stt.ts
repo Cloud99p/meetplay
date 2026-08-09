@@ -42,22 +42,22 @@ export async function sttRoutes(app: FastifyInstance) {
       model,
       encoding: 'linear16',
       sample_rate: '16000',
-      language: cfg.deepgramLanguage,
       // smart_format is deliberately OFF: it post-processes numbers/dates
       // ("twenty five" -> "25") which breaks the word-count games and adds
       // latency on the streaming path.
     });
 
     if (isFlux) {
-      // v2 Flux: turn-based, end-of-turn detection. No diarization (single speaker).
+      // v2 Flux: turn-based, end-of-turn detection. No diarization (single
+      // speaker) and NO v1-only params — the v2 endpoint rejects language,
+      // punctuate, interim_results, vad_events, channels (400). Flux is
+      // English-only, punctuates by default, and streams Update events natively.
+      // Low-latency mode (per Deepgram docs): eager_eot_threshold enables
+      // EagerEndOfTurn at sentence boundaries during continuous speech;
+      // eot_timeout_ms caps silence before a forced EndOfTurn.
       params.set('eot_threshold', '0.7');
-      params.set('eot_timeout_ms', '5000');
-      params.set('vad_events', 'true');
-      // punctuate keeps transcripts readable ("intonation" — sentence breaks
-      // and commas) without affecting word counts; interim_results keeps the
-      // live Update events flowing for the caption overlay.
-      params.set('punctuate', 'true');
-      params.set('interim_results', 'true');
+      params.set('eager_eot_threshold', '0.4');
+      params.set('eot_timeout_ms', '3000');
     } else {
       // v1: diarized multi-speaker (required for "Who Said That?" game).
       // Options mirror Deepgram's canonical streaming example:
@@ -65,6 +65,7 @@ export async function sttRoutes(app: FastifyInstance) {
       //   diarize, punctuate, vad_events. no_delay returns results as soon
       //   as they're ready instead of waiting for a better hypothesis —
       //   keeps live captions/word counts tight during fast speech.
+      params.set('language', cfg.deepgramLanguage);
       params.set('diarize', 'true');
       params.set('interim_results', 'true');
       params.set('punctuate', 'true');
@@ -144,17 +145,44 @@ export async function sttRoutes(app: FastifyInstance) {
       }
     });
 
+    // Surface the REAL reason behind handshake failures (the ws library only
+    // says "Unexpected server response: 400" — the body has the actual
+    // INVALID_QUERY_PARAMETER / auth error from Deepgram).
+    upstream.on('unexpected-response', (_req, res) => {
+      let body = '';
+      res.on('data', (d: Buffer) => (body += d.toString()));
+      res.on('end', () => {
+        console.error(`[stt-proxy] upstream handshake failed: HTTP ${res.statusCode} ${body.slice(0, 500)}`);
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: 'Error', message: `Deepgram upstream error (HTTP ${res.statusCode}).` }));
+        }
+      });
+    });
+
     upstream.on('close', () => {
       if (socket.readyState === socket.OPEN) socket.close();
     });
 
-    // Client -> upstream (Configure JSON, then binary PCM16 audio)
+    // Client -> upstream (binary PCM16 audio; control messages filtered)
     socket.on('message', (data: any) => {
       if (typeof data === 'string') {
-        // JSON control message (Configure) — log it, forward as-is
-        console.log(`[stt:${connId}] client msg: ${data.slice(0, 200)}`);
-        if (upstreamOpen && upstream.readyState === WebSocket.OPEN) upstream.send(data);
-        else pending.push(data);
+        // The client sends a Configure JSON on connect. v2 Flux rejects it
+        // (only thresholds/keyterms/language_hints/profanity_filter are valid)
+        // and v1 doesn't need it — the upstream URL params are authoritative
+        // for encoding/sample_rate/model. Drop Configure, forward CloseStream.
+        try {
+          const msg = JSON.parse(data);
+          if (msg.type === 'CloseStream') {
+            if (upstreamOpen && upstream.readyState === WebSocket.OPEN) upstream.send(data);
+            else pending.push(data);
+          } else {
+            console.log(`[stt:${connId}] client msg dropped: ${data.slice(0, 120)}`);
+          }
+        } catch {
+          // non-JSON string — pass through
+          if (upstreamOpen && upstream.readyState === WebSocket.OPEN) upstream.send(data);
+          else pending.push(data);
+        }
         return;
       }
       const buf = data as Buffer;

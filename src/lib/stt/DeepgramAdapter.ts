@@ -150,13 +150,10 @@ export class DeepgramAdapter implements STTAdapter {
         return;
       }
       this.reconnectAttempts = 0;
-      // Tell the server which Deepgram config to use. The server holds the key.
-      // Keep this MINIMAL and format-agnostic: the model (nova-2 vs flux),
-      // language variant, and model-specific params (diarize, endpointing,
-      // eot_*, punctuate) are owned by the server (DEEPGRAM_MODEL /
-      // DEEPGRAM_LANGUAGE env) via the upstream URL. Sending v1-only fields
-      // (diarize/endpointing/smart_format) to a v2 Flux endpoint risks
-      // rejection or silent override.
+      // The server ignores Configure messages entirely (the upstream URL
+      // params are authoritative for model/encoding/sample_rate — v2 Flux
+      // would even reject v1-style Configure fields with an Error event).
+      // Sent for compatibility; harmless.
       this.ws?.send(
         JSON.stringify({
           type: 'Configure',
@@ -210,7 +207,10 @@ export class DeepgramAdapter implements STTAdapter {
     if (msg.type === 'TurnInfo' || typeof msg.event === 'string') {
       const event = msg.event ?? msg.type;
       const text = (msg.transcript ?? '').trim();
-      if (event === 'StartOfTurn') {
+      if (event === 'StartOfTurn' || event === 'TurnResumed') {
+        // TurnResumed: an eager end-of-turn was cancelled because the speaker
+        // kept talking — the eventual EndOfTurn will carry the full resumed
+        // turn text, so forget the eager snapshot to avoid a stale comparison.
         this.lastInterimText = '';
         this.lastFinalText = '';
         return;
