@@ -40,17 +40,25 @@ export async function sttRoutes(app: FastifyInstance) {
       model,
       encoding: 'linear16',
       sample_rate: '16000',
+      language: 'en',
+      smart_format: 'true',
     });
 
     if (isFlux) {
       // v2 Flux: turn-based, end-of-turn detection. No diarization (single speaker).
       params.set('eot_threshold', '0.7');
       params.set('eot_timeout_ms', '5000');
+      params.set('vad_events', 'true');
     } else {
       // v1: diarized multi-speaker (required for "Who Said That?" game).
+      // Options mirror Deepgram's canonical streaming example:
+      //   model nova-2, language en, smart_format, interim_results,
+      //   endpointing 10ms, diarize, punctuate, vad_events.
       params.set('diarize', 'true');
       params.set('interim_results', 'true');
       params.set('punctuate', 'true');
+      params.set('endpointing', '10');
+      params.set('vad_events', 'true');
       params.set('channels', '1');
     }
 

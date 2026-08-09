@@ -127,9 +127,13 @@ export class DeepgramAdapter implements STTAdapter {
           sample_rate: 16000,
           channels: 1,
           model: 'nova-2',
-          diarize: true,
+          language: 'en',
+          smart_format: true,
           interim_results: true,
+          endpointing: 10,
+          diarize: true,
           punctuate: true,
+          vad_events: true,
         }),
       );
       this.startMicrophone();
