@@ -351,7 +351,6 @@ export class DeepgramAdapter implements STTAdapter {
     this.workletNode = new AudioWorkletNode(ctx, 'pcm-bridge', {
       numberOfInputs: 1,
       numberOfOutputs: 0,
-      outputChannelCount: [1],
     });
     this.workletNode.port.onmessage = (e) => this.handlePcm(e.data as Float32Array);
     this.source?.connect(this.workletNode);
