@@ -2,7 +2,7 @@ import * as db from '../db/queries.js';
 import { channelManager } from '../ws/channels.js';
 import type { LeaderboardEntry } from '../ws/messages.js';
 import { makeWhoSaidThatRound, scoreWhoSaidThat, type WhoSaidThatRound } from './whoSaidThat.js';
-import { buildScrabbleRound, type ScrabbleRound } from './scrabble.js';
+import { buildScrabbleRound, calculateScore as calcScrabbleScore, type ScrabbleRound } from './scrabble.js';
 import { selectTargetWord, calculateBetScore, type WordCountBetRound } from './wordCountBet.js';
 import { computeGuessOdds, oddsMultiplier, countWordInText, type MarketBet } from './market.js';
 import {
@@ -15,20 +15,17 @@ import { omniClient } from '../intelligence/omniClient.js';
 
 const ROUND_TIME_LIMITS: Record<string, number> = {
   who_said_that: 30,
-  scrabble: 45,
+  scrabble: 90,
 };
 
-const ROUND_COOLDOWN_MS = 15_000;
 const MIN_UTTERANCES_FOR_ROUND = 8;
 const MAX_BUFFER_SIZE = 200;
 
-// Quick rotating rounds (Layer B). Word Count Bet is no longer a round —
-// it lives as an always-on market (Layer A) in this same engine.
-const GAME_TYPES = ['who_said_that', 'scrabble'] as const;
-type GameType = (typeof GAME_TYPES)[number];
+// Player-chosen quick rounds. Rounds no longer auto-rotate mid-meeting —
+// members pick from the game menu; only Flash WCB stays automatic.
+type StartableGameType = 'who_said_that' | 'scrabble' | 'bingo';
 
 const BINGO_WIN_SCORE = 1500;
-const BINGO_NEXT_ROUND_DELAY_MS = 12_000;
 const STATS_BROADCAST_INTERVAL_MS = 3_000;
 const MARKET_UPDATE_THROTTLE_MS = 1_500;
 
@@ -50,7 +47,7 @@ const FLASH_WORD_POOL = [
 
 interface ActiveRound {
   id: string;
-  gameType: GameType;
+  gameType: 'who_said_that' | 'scrabble';
   state: 'open';
   roundData: any;
   timeLimitSec: number;
@@ -152,7 +149,7 @@ export class RoomGameEngine {
       if (seed) await this.openMarket(seed);
     }
     if (!this.bingo) {
-      await this.openBingoRound(1);
+      // Bingo no longer auto-opens — players start it from the game menu.
     }
     this.ensureStatsTimer();
     // Schedule the first flash WCB at a random moment (20–60s in), then
@@ -225,8 +222,7 @@ export class RoomGameEngine {
 
     console.log(gameHits.length > 0 ? `${summary} -> GAME HITS: ${gameHits.join(', ')}` : summary);
 
-    // ── Layer B: quick rounds ──
-    this.maybeStartRound();
+    // Note: rounds are now player-chosen (game:start); nothing auto-opens here.
 
     // ── Market fallback seed: once we have a bit of speech ──
     if (!this.market && this.buffer.length >= 3) {
@@ -989,10 +985,9 @@ export class RoomGameEngine {
           lineType: line.type,
         },
       });
-      // Deal a new card after a beat
-      b.nextTimer = setTimeout(() => {
-        this.openBingoRound(b.roundNumber + 1);
-      }, BINGO_NEXT_ROUND_DELAY_MS);
+      // Deal a new card after a beat — NO: bingo rounds are now player-
+      // started from the game menu. A win ends the current round; members
+      // restart bingo when they want another card.
     }
     return newHits.length;
   }
@@ -1115,19 +1110,38 @@ export class RoomGameEngine {
     }
   }
 
-  private maybeStartRound(): void {
-    if (this.currentRound) return;
-    const now = Date.now();
-    if (now - this.lastRoundEndedAt < ROUND_COOLDOWN_MS) return;
-    if (this.buffer.length < MIN_UTTERANCES_FOR_ROUND) return;
-
-    this.startNextRound();
+  /**
+   * Player-chosen game start (game:start). Any member can start one game at
+   * a time. Bingo opens immediately; who_said_that/scrabble need enough
+   * conversation to build from. Returns a reason when rejected so the
+   * requester can show it.
+   */
+  async startGame(
+    gameType: StartableGameType,
+    _participantId: string,
+    _participantName: string
+  ): Promise<{ ok: boolean; reason?: string }> {
+    if (this.currentRound) {
+      return { ok: false, reason: 'A round is already running — let it finish first.' };
+    }
+    if (gameType === 'bingo') {
+      if (this.bingo && !this.bingo.winner) {
+        return { ok: false, reason: 'Bingo is already in play.' };
+      }
+      await this.openBingoRound(this.bingo?.roundNumber ? this.bingo.roundNumber + 1 : 1);
+      return { ok: true };
+    }
+    if (this.buffer.length < MIN_UTTERANCES_FOR_ROUND) {
+      return { ok: false, reason: 'Not enough conversation yet — keep talking so the game has material.' };
+    }
+    const ok = await this.startNextRound(gameType);
+    return ok
+      ? { ok: true }
+      : { ok: false, reason: 'Could not build that game from the conversation yet — try again in a moment.' };
   }
 
-  private async startNextRound(): Promise<void> {
-    const gameType = GAME_TYPES[this.roundCount % GAME_TYPES.length] as GameType;
-    this.roundCount++;
-
+  /** Open a who_said_that / scrabble round now. Returns false if it can't be built. */
+  private async startNextRound(gameType: 'who_said_that' | 'scrabble'): Promise<boolean> {
     // Build round data
     let roundData: any;
     try {
@@ -1146,8 +1160,8 @@ export class RoomGameEngine {
             makeWhoSaidThatRound([...graph, ...this.buffer], pBriefs) ??
             makeWhoSaidThatRound(this.buffer, pBriefs);
           if (!result) {
-            // Couldn't build a round — push to next cycle
-            return;
+            // Couldn't build a round
+            return false;
           }
           roundData = result;
           break;
@@ -1158,7 +1172,7 @@ export class RoomGameEngine {
       }
     } catch (e) {
       console.error(`[engine:${this.roomId}] Failed to build round:`, e);
-      return;
+      return false;
     }
 
     const timeLimitSec = ROUND_TIME_LIMITS[gameType] ?? 30;
@@ -1174,7 +1188,7 @@ export class RoomGameEngine {
       });
     } catch (e) {
       console.error(`[engine:${this.roomId}] Failed to persist round:`, e);
-      return;
+      return false;
     }
 
     // Set lock timer
@@ -1204,6 +1218,7 @@ export class RoomGameEngine {
         timeLimit: timeLimitSec,
       },
     });
+    return true;
   }
 
   async submitAnswer(roundId: string, participantId: string, participantName: string, answer: unknown): Promise<void> {
@@ -1290,9 +1305,10 @@ export class RoomGameEngine {
               .filter((s: any) => s.participant_id !== sub.participant_id)
               .map((s: any) => s.submission as { words: string[] });
             // Need to compute scores with cross-submission uniqueness
-            const { points } = calculateScrabbleScore(
+            const { points } = calcScrabbleScore(
               (sub.submission as { words: string[] }).words,
               scrRound.bank,
+              scrRound.pool,
               allWordSubs
             );
             score = points;
@@ -1459,21 +1475,3 @@ export function destroyGameEngine(roomId: string): void {
   }
 }
 
-// Helper: calculate Scrabble score accounting for uniqueness across submissions
-function calculateScrabbleScore(
-  words: string[],
-  bank: string[],
-  otherSubmissions: Array<{ words: string[] }>
-): { points: number } {
-  const uniqueWords = new Set(words.map((w) => w.toLowerCase().trim()));
-  let totalPoints = 0;
-
-  for (const w of uniqueWords) {
-    if (!bank.includes(w)) continue;
-    const isUnique = !otherSubmissions.some(
-      (s) => s.words.some((sw) => sw.toLowerCase().trim() === w)
-    );
-    totalPoints += 100 + (isUnique ? 500 : 0);
-  }
-  return { points: totalPoints };
-}

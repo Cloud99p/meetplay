@@ -61,7 +61,7 @@ export function isGameType(type: string): type is GameType {
 export function getGameTypeLabel(type: GameType): string {
   switch (type) {
     case 'who_said_that': return 'Who Said That?';
-    case 'scrabble': return 'Meeting Scrabble';
+    case 'scrabble': return 'Letter Tiles';
     case 'word_count_bet': return 'Word Count Bet';
   }
 }

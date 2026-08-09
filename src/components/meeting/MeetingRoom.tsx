@@ -470,6 +470,8 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                       actions.submitAnswer(state.activeRound.roundId, answer);
                     }
                   }}
+                  onStartGame={(gameType) => actions.startGame(gameType)}
+                  gameStartError={state.gameStartError}
                   participantId={state.participantId}
                   transcriptionEnabled={state.transcriptionEnabled}
                   quiet={state.gameQuiet}

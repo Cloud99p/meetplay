@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { LuGamepad2, LuTrophy } from 'react-icons/lu';
-import type { GameRound, LeaderboardEntry, RoomStateSnapshot } from '../../types/games';
+import { LuGamepad2, LuTrophy, LuTarget, LuDices, LuGrid3X3 } from 'react-icons/lu';
+import type { GameRound, LeaderboardEntry, RoomStateSnapshot, StartableGameType } from '../../types/games';
 import { getGameTypeLabel, isGameType } from '../../lib/games/engine';
 import WhoSaidThat from './WhoSaidThat';
 import MeetingScrabble from './MeetingScrabble';
@@ -14,6 +14,10 @@ interface Props {
   activeRound: GameRound | null;
   leaderboard: LeaderboardEntry[];
   onSubmit: (answer: unknown) => void;
+  /** Start a player-chosen game (game:start). */
+  onStartGame: (gameType: StartableGameType) => void;
+  /** Reason the last game:start was rejected (round running / too little speech). */
+  gameStartError: string | null;
   participantId: string | null;
   transcriptionEnabled: boolean;
   /** Quiet mode: host presenting / screen-sharing — notifications suspended. */
@@ -37,6 +41,8 @@ export default function GamesPanel({
   activeRound,
   leaderboard,
   onSubmit,
+  onStartGame,
+  gameStartError,
   participantId,
   transcriptionEnabled,
   quiet,
@@ -113,13 +119,20 @@ export default function GamesPanel({
             )}
             {/* Active quick round (Layer B), if any */}
             <ActiveRoundView activeRound={activeRound} onSubmit={onSubmit} />
-            {!market && !bingo && !activeRound && (
+            {/* Player-chosen game menu — shown whenever no round is running */}
+            {!activeRound && <GameMenu onStartGame={onStartGame} transcriptionEnabled={transcriptionEnabled} />}
+            {gameStartError && (
+              <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-xs text-destructive">
+                {gameStartError}
+              </div>
+            )}
+            {!market && !bingo && !activeRound && !flash && (
               <div className="p-4 text-center space-y-2">
                 <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center mx-auto">
                   <LuGamepad2 className="w-6 h-6 text-primary" />
                 </div>
                 <p className="text-sm text-foreground">No games yet</p>
-                <p className="text-xs text-muted">Games start as the conversation flows. Keep talking!</p>
+                <p className="text-xs text-muted">Pick one above to play — flash word bets still pop up on their own.</p>
               </div>
             )}
           </div>
@@ -131,6 +144,74 @@ export default function GamesPanel({
           <StatsPanel stats={stats} participantId={participantId} quiet={quiet} />
         )}
       </div>
+    </div>
+  );
+}
+
+const GAME_MENU: Array<{
+  type: StartableGameType;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  needsSpeech: boolean;
+}> = [
+  {
+    type: 'who_said_that',
+    icon: <LuTarget className="w-4 h-4" />,
+    title: 'Who Said That?',
+    desc: 'A quote from the meeting — guess who said it. Fastest correct answer wins.',
+    needsSpeech: true,
+  },
+  {
+    type: 'scrabble',
+    icon: <LuGrid3X3 className="w-4 h-4" />,
+    title: 'Letter Tiles',
+    desc: 'Letters from what was said, scrambled into tiles — spell real meeting words. Long words score more.',
+    needsSpeech: true,
+  },
+  {
+    type: 'bingo',
+    icon: <LuDices className="w-4 h-4" />,
+    title: 'Buzzword Bingo',
+    desc: 'Mark your card as the buzzwords get said. First line wins the round.',
+    needsSpeech: false,
+  },
+];
+
+/** Player-chosen game launcher. Shown whenever no quick round is running. */
+function GameMenu({
+  onStartGame,
+  transcriptionEnabled,
+}: {
+  onStartGame: (gameType: StartableGameType) => void;
+  transcriptionEnabled: boolean;
+}) {
+  return (
+    <div className="p-4 border-b border-border space-y-2">
+      <p className="text-xs font-medium text-muted uppercase tracking-wider">Start a game</p>
+      {GAME_MENU.map((g) => {
+        const disabled = g.needsSpeech && !transcriptionEnabled;
+        return (
+          <button
+            key={g.type}
+            onClick={() => onStartGame(g.type)}
+            disabled={disabled}
+            className="w-full text-left flex items-start gap-3 p-3 bg-bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title={disabled ? 'Turn on captions to play this one' : undefined}
+          >
+            <span className="mt-0.5 w-7 h-7 flex items-center justify-center rounded-md bg-primary/15 text-primary flex-shrink-0">
+              {g.icon}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">{g.title}</span>
+              <span className="block text-xs text-muted mt-0.5">{g.desc}</span>
+              {disabled && (
+                <span className="block text-[10px] text-warning mt-1">Needs captions on</span>
+              )}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

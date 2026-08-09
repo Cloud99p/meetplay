@@ -13,7 +13,7 @@ interface Props {
 
 const GAME_LABELS: Record<string, string> = {
   who_said_that: 'Who Said That?',
-  scrabble: 'Meeting Scrabble',
+  scrabble: 'Letter Tiles',
   word_count_bet: 'Word Count Bet',
   flash_wcb: '⚡ Flash Word Count Bet',
   user_word_bet: '👥 Member Word Bet',

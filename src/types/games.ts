@@ -1,5 +1,8 @@
 export type GameType = 'who_said_that' | 'scrabble' | 'word_count_bet';
 
+/** Games players can start from the meeting game menu (flash WCB is automatic). */
+export type StartableGameType = 'who_said_that' | 'scrabble' | 'bingo';
+
 export type RoundState = 'idle' | 'open' | 'locked' | 'scored';
 
 export interface GameRound {

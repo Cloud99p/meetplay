@@ -358,6 +358,22 @@ async function handleMessage(
       break;
     }
 
+    case 'game:start': {
+      // Player-chosen game. Any member can start; the engine rejects if a
+      // round is already running or the conversation is too thin — the
+      // reason goes back only to the requester.
+      const gameType = (payload as { gameType: 'who_said_that' | 'scrabble' | 'bingo' }).gameType;
+      const engine = getGameEngine(roomId);
+      const result = await engine.startGame(gameType, senderId, sender.name);
+      if (!result.ok) {
+        channelManager.sendTo(roomId, senderId, {
+          type: 'game:start:rejected',
+          payload: { reason: result.reason ?? 'Cannot start that game right now.' },
+        });
+      }
+      break;
+    }
+
     case 'game:userMarket:create': {
       const engine = getGameEngine(roomId);
       const error = await engine.createUserMarket(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { RoomEvent } from 'livekit-client';
 import type { Room } from '../types/meeting';
-import type { LeaderboardEntry, RoomStateSnapshot } from '../types/games';
+import type { LeaderboardEntry, RoomStateSnapshot, StartableGameType } from '../types/games';
 import type { ChatMessage } from '../types/chat';
 import * as api from '../lib/api';
 import { connectToLiveKitWithRetry, reconnectLiveKit } from '../lib/livekit';
@@ -29,6 +29,7 @@ export interface MeetingState {
   userMarketError: string | null;
   bingo: RoomStateSnapshot['bingo'];
   stats: RoomStateSnapshot['stats'];
+  gameStartError: string | null;
   livekitUrl: string;
   captions: Array<{
     speakerId: string;
@@ -61,6 +62,7 @@ export interface MeetingActions {
   leave: () => void;
   sendCaption: (speakerId: string, text: string, isFinal: boolean) => void;
   submitAnswer: (roundId: string, answer: unknown) => void;
+  startGame: (gameType: StartableGameType) => void;
   placeMarketBet: (guess: number) => void;
   placeFlashBet: (roundId: string, guess: number) => void;
   createUserMarket: (word: string, guess: number, durationSec?: number) => void;
@@ -79,6 +81,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [activeRound, setActiveRound] = useState<RoomStateSnapshot['activeRound']>(null);
+  const [gameStartError, setGameStartError] = useState<string | null>(null);
   const [market, setMarket] = useState<RoomStateSnapshot['market']>(null);
   const [flash, setFlash] = useState<RoomStateSnapshot['flash']>(null);
   const [userMarkets, setUserMarkets] = useState<RoomStateSnapshot['userMarkets']>([]);
@@ -274,6 +277,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
 
     unsubs.push(
       ws.on('game:round:open', (payload: { roundId: string; gameType: string; question: unknown; timeLimit: number }) => {
+        setGameStartError(null);
         setActiveRound({
           roundId: payload.roundId,
           gameType: payload.gameType,
@@ -295,6 +299,12 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('game:round:scored', (payload: { roundId: string; results: any[]; leaderboard: LeaderboardEntry[] }) => {
         setLeaderboard(payload.leaderboard);
         setActiveRound((prev) => prev?.roundId === payload.roundId ? { ...prev, state: 'scored' } : prev);
+      })
+    );
+
+    unsubs.push(
+      ws.on('game:start:rejected', (payload: { reason: string }) => {
+        setGameStartError(payload.reason);
       })
     );
 
@@ -944,6 +954,11 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.send('game:submit', { roundId, answer });
   }, [ws]);
 
+  const startGame = useCallback((gameType: StartableGameType) => {
+    setGameStartError(null);
+    ws.send('game:start', { gameType });
+  }, [ws]);
+
   const placeMarketBet = useCallback((guess: number) => {
     setMarket((prev) => {
       if (prev && !prev.resolved && !prev.myBet) {
@@ -1005,6 +1020,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     userMarketError,
     bingo,
     stats,
+    gameStartError,
     livekitUrl,
     captions,
     gameQuiet,
@@ -1032,6 +1048,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       leave,
       sendCaption,
       submitAnswer,
+      startGame,
       placeMarketBet,
       placeFlashBet,
       createUserMarket,
@@ -1055,6 +1072,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       leave,
       sendCaption,
       submitAnswer,
+      startGame,
       placeMarketBet,
       placeFlashBet,
       createUserMarket,

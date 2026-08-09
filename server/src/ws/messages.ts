@@ -15,6 +15,9 @@ export const GameSubmitPayload = z.object({
   roundId: z.string().uuid(),
   answer: z.unknown(),
 });
+export const GameStartPayload = z.object({
+  gameType: z.enum(['who_said_that', 'scrabble', 'bingo']),
+});
 export const UserMarketCreatePayload = z.object({
   word: z.string().min(1).max(30),
   guess: z.number().int().min(0).max(9999),
@@ -41,6 +44,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hand:lower'), payload: HandLowerPayload }),
   z.object({ type: z.literal('caption:event'), payload: CaptionEventPayload }),
   z.object({ type: z.literal('game:submit'), payload: GameSubmitPayload }),
+  z.object({ type: z.literal('game:start'), payload: GameStartPayload }),
   z.object({ type: z.literal('game:userMarket:create'), payload: UserMarketCreatePayload }),
   z.object({ type: z.literal('participant:mute'), payload: ParticipantMutePayload }),
   z.object({ type: z.literal('participant:camera'), payload: ParticipantCameraPayload }),
@@ -62,6 +66,7 @@ export type ServerMessage =
   | { type: 'hand:lowered'; payload: { participantId: string } }
   | { type: 'caption:event'; payload: { speakerId: string; participantName: string | null; text: string; isFinal: boolean; timestamp: number } }
   | { type: 'game:round:open'; payload: { roundId: string; gameType: string; question: unknown; timeLimit: number } }
+  | { type: 'game:start:rejected'; payload: { reason: string } }
   | { type: 'game:round:locked'; payload: { roundId: string } }
   | { type: 'game:round:scored'; payload: { roundId: string; results: Array<Record<string, unknown>>; leaderboard: LeaderboardEntry[] } }
   | { type: 'game:market:open'; payload: { roundId: string; targetWord: string; startedAt: string } }
