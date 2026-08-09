@@ -33,6 +33,14 @@ export class DeepgramAdapter implements STTAdapter {
   private lastInterimText = '';
   private lastLevelReport = 0;
 
+  // Deepgram is configured (client + server) for linear16 @ 16000 Hz.
+  // Browsers default to 44.1/48 kHz, so unless we force the context rate or
+  // resample, the upstream gets 2.76-3x too many samples/sec and Deepgram
+  // hears chipmunk-speed garbage -> SpeechStarted fires, transcripts are
+  // empty. captureRatio = nativeRate / 16000 (1 when the context honors it).
+  private captureRatio = 1;
+  private resampleAcc = 0;
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -272,7 +280,16 @@ export class DeepgramAdapter implements STTAdapter {
     }
 
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    this.audioContext = new Ctx();
+    try {
+      // Ask the browser to resample the mic to 16 kHz natively. Not all
+      // engines honor AudioContextOptions.sampleRate, hence the resampler
+      // safety net in handlePcm/handleAudio using this.captureRatio.
+      this.audioContext = new Ctx({ sampleRate: 16000 } as AudioContextOptions);
+    } catch {
+      this.audioContext = new Ctx();
+    }
+    this.captureRatio = this.audioContext.sampleRate / 16000;
+    this.resampleAcc = 0;
     this.ensureContextRunning();
 
     this.source = this.audioContext.createMediaStreamSource(this.stream);
@@ -363,14 +380,43 @@ export class DeepgramAdapter implements STTAdapter {
     this.processor.connect(ctx.destination);
   }
 
+  /**
+   * Resample a native-rate Float32 chunk down to 16 kHz using linear
+   * interpolation (good enough for speech), keeping the fractional sample
+   * position across chunks so the stream stays continuous.
+   */
+  private to16k(input: Float32Array): Float32Array {
+    if (this.captureRatio <= 1) return input;
+    const n = input.length;
+    const outLen = Math.floor((this.resampleAcc + n) / this.captureRatio);
+    if (outLen <= 0) {
+      this.resampleAcc += n;
+      return new Float32Array(0);
+    }
+    const out = new Float32Array(outLen);
+    let i = this.resampleAcc;
+    let oi = 0;
+    while (i < n && oi < outLen) {
+      const i0 = Math.floor(i);
+      const i1 = Math.min(i0 + 1, n - 1);
+      const frac = i - i0;
+      out[oi++] = input[i0] * (1 - frac) + input[i1] * frac;
+      i += this.captureRatio;
+    }
+    this.resampleAcc = i - n;
+    return oi === outLen ? out : out.subarray(0, oi);
+  }
+
   /** Convert a Float32 audio buffer to PCM16 and send it upstream. */
   private handleAudio(e: AudioProcessingEvent): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     if (this.muted) return;
     const input = e.inputBuffer.getChannelData(0); // Float32 [-1, 1]
-    const pcm = new Int16Array(input.length);
-    for (let i = 0; i < input.length; i++) {
-      const s = Math.max(-1, Math.min(1, input[i]));
+    const resampled = this.to16k(input);
+    if (resampled.length === 0) return;
+    const pcm = new Int16Array(resampled.length);
+    for (let i = 0; i < resampled.length; i++) {
+      const s = Math.max(-1, Math.min(1, resampled[i]));
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
     this.ws.send(pcm.buffer);
@@ -381,9 +427,11 @@ export class DeepgramAdapter implements STTAdapter {
   private handlePcm(input: Float32Array): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     if (this.muted) return;
-    const pcm = new Int16Array(input.length);
-    for (let i = 0; i < input.length; i++) {
-      const s = Math.max(-1, Math.min(1, input[i]));
+    const resampled = this.to16k(input);
+    if (resampled.length === 0) return;
+    const pcm = new Int16Array(resampled.length);
+    for (let i = 0; i < resampled.length; i++) {
+      const s = Math.max(-1, Math.min(1, resampled[i]));
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
     this.ws.send(pcm.buffer);
@@ -424,6 +472,8 @@ export class DeepgramAdapter implements STTAdapter {
       void this.audioContext.close().catch(() => undefined);
       this.audioContext = null;
     }
+    this.captureRatio = 1;
+    this.resampleAcc = 0;
     if (this.stream) {
       this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
