@@ -1,6 +1,6 @@
 # MeetPlay — Video Meetings with Real-Time Attention Games
 
-A video-conferencing web app (Google Meet / Zoom alternative) that turns the live
+A video-conferencing web app that turns the live
 transcript into opt-in mini-games — **Who Said That?**, **Meeting Scrabble**,
 **Word Count Bet**, **Flash WCB**, **Member Word Bets**, and **Buzzword Bingo** —
 so people have a genuine reason to listen. Games live in a collapsible side
