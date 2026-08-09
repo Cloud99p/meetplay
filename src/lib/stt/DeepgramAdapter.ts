@@ -36,6 +36,15 @@ export class DeepgramAdapter implements STTAdapter {
   private lastFinalText = '';
   private lastLevelReport = 0;
 
+  // Liveness watchdog: the server sends stt:keepalive frames every 10s. If we
+  // stop hearing from the server while the socket still LOOKS open (Railway
+  // restart, half-open connection, proxy hang), captions would silently stop
+  // forever. Force a reconnect cycle instead.
+  private lastServerMsgAt = 0;
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly WATCHDOG_STALE_MS = 45000;
+  private micErrorShown = false;
+
   // Deepgram is configured (client + server) for linear16 @ 16000 Hz.
   // Browsers default to 44.1/48 kHz, so unless we force the context rate or
   // resample, the upstream gets 2.76-3x too many samples/sec and Deepgram
@@ -66,6 +75,7 @@ export class DeepgramAdapter implements STTAdapter {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopWatchdog();
     this.teardownMedia();
     // Ship any buffered tail audio upstream before closing the session so
     // Deepgram can finalize the last utterance.
@@ -150,6 +160,8 @@ export class DeepgramAdapter implements STTAdapter {
         return;
       }
       this.reconnectAttempts = 0;
+      this.lastServerMsgAt = Date.now();
+      this.startWatchdog();
       // The server ignores Configure messages entirely (the upstream URL
       // params are authoritative for model/encoding/sample_rate — v2 Flux
       // would even reject v1-style Configure fields with an Error event).
@@ -187,6 +199,37 @@ export class DeepgramAdapter implements STTAdapter {
       this.reconnectTimer = null;
       if (!this.stopped) this.connect();
     }, delay);
+  }
+
+  /**
+   * Watchdog: while the adapter is running, if no server frame (results,
+   * keepalive, anything) arrives for WATCHDOG_STALE_MS, the socket is
+   * presumed dead — close it so onclose -> scheduleReconnect re-establishes
+   * the session. The server's 10s keepalive means a healthy session never
+   * trips this; only genuinely stuck connections do.
+   */
+  private startWatchdog(): void {
+    if (this.watchdogTimer) return;
+    this.watchdogTimer = setInterval(() => {
+      if (this.stopped || !this.running) return;
+      const ws = this.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - this.lastServerMsgAt > this.WATCHDOG_STALE_MS) {
+        console.warn(`[DeepgramAdapter] no server frames for ${this.WATCHDOG_STALE_MS}ms — forcing reconnect`);
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 10000);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
   }
 
   /**
@@ -232,9 +275,18 @@ export class DeepgramAdapter implements STTAdapter {
     } catch {
       return;
     }
+    // Any parseable server frame counts as liveness for the watchdog.
+    this.lastServerMsgAt = Date.now();
 
     if (msg.type === 'Error') {
       console.warn('[DeepgramAdapter] server error:', msg.message);
+      // The server closes the socket after most Error frames; be defensive
+      // and force the reconnect ourselves if it didn't.
+      try {
+        this.ws?.close();
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -334,11 +386,24 @@ export class DeepgramAdapter implements STTAdapter {
   private async startMicrophone(): Promise<void> {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.micErrorShown = false;
     } catch (err) {
       console.error('[DeepgramAdapter] getUserMedia failed:', err);
-      this.onError?.(
-        'Microphone blocked — allow mic access in the browser (or site settings) and toggle transcription off/on.',
-      );
+      if (!this.micErrorShown) {
+        this.micErrorShown = true;
+        this.onError?.(
+          'Microphone blocked — allow mic access in the browser (or site settings) and toggle transcription off/on.',
+        );
+      }
+      // Don't leave a half-dead session: retry the whole flow (WS + mic)
+      // with backoff so a transient mic failure (device busy, permission
+      // prompt dismissed by accident) self-heals instead of killing
+      // captions for the rest of the call.
+      try {
+        this.ws?.close();
+      } catch {
+        /* ignore */
+      }
       return;
     }
 

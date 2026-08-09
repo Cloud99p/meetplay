@@ -29,20 +29,38 @@ ws.on("open", () => {
     type: "Configure", encoding: "linear16", sample_rate: 16000, channels: 1,
     model: "nova-2", interim_results: true, punctuate: true,
   }));
-  // stream in chunks like the browser mic would
+  // stream in chunks like the browser mic would (buffer-backed: the server
+  // holds audio until the Deepgram upstream opens, so a slow cold start
+  // (~13s) still gets all the audio once the session is live)
   const chunk = 16000 * 2 * 0.1; // 100ms
   for (let i = 0; i < pcm.length; i += chunk) {
     ws.send(pcm.subarray(i, i + chunk));
   }
-  // small silence then close to force final transcript
-  setTimeout(() => ws.close(), 1500);
 });
 
+let finalSeen = false;
+let settleTimer = null;
 ws.on("message", (data) => {
   let msg; try { msg = JSON.parse(data.toString()); } catch { return; }
-  if ((msg.type === "Result" || msg.type === "Results") && msg.channel?.alternatives?.[0]?.transcript) {
-    const t = msg.channel.alternatives[0].transcript;
-    if (t.trim()) { words = t; console.log(`+${Date.now() - t0}ms Result: "${t}"`); }
+  // Flux v2 speaks TurnInfo events (StartOfTurn/Update/EndOfTurn); v1 speaks
+  // Results. The server uses the env DEEPGRAM_MODEL (flux-general-en by
+  // default), so accept BOTH shapes — same as the browser adapter does.
+  const fluxText = typeof msg.event === "string" && msg.transcript ? String(msg.transcript).trim() : "";
+  const v1Text = (msg.type === "Result" || msg.type === "Results") && msg.channel?.alternatives?.[0]?.transcript
+    ? String(msg.channel.alternatives[0].transcript).trim()
+    : "";
+  const gotText = fluxText || v1Text;
+  if (gotText) {
+    words = gotText;
+    console.log(`+${Date.now() - t0}ms ${fluxText ? "TurnInfo " + (msg.event ?? "") : "Result"}: "${gotText}"`);
+    // Close once the transcript stabilizes: Flux often keeps a turn open
+    // after an instant audio burst (no EndOfTurn), so don't wait for it —
+    // 4s of no NEW text means we have the final words.
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      try { ws.send(JSON.stringify({ type: "CloseStream" })); } catch {}
+      setTimeout(() => ws.close(), 800);
+    }, 4000);
   }
   if (msg.type === "Error") console.log("server error:", JSON.stringify(msg).slice(0, 200));
 });

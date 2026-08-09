@@ -39,6 +39,19 @@ export class WebSpeechAdapter implements STTAdapter {
       console.warn('[WebSpeechAdapter] error:', event.error);
     };
 
+    // SpeechRecognition stops on its own after silence / most errors
+    // ('no-speech', 'aborted', 'network'). Without an onend restart, captions
+    // die mid-call and never come back — same bug class as the Deepgram
+    // adapter. Restart unless we were deliberately stopped/muted.
+    recognition.onend = () => {
+      if (!this.running || this.muted) return;
+      try {
+        recognition.start();
+      } catch {
+        /* already started or closing — next onend will retry */
+      }
+    };
+
     recognition.start();
     this.recognition = recognition;
     this.running = true;

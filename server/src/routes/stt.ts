@@ -94,6 +94,7 @@ export async function sttRoutes(app: FastifyInstance) {
 
     let upstreamOpen = false;
     const pending: (string | Buffer)[] = [];
+    let pendingBytes = 0;
     let audioBytes = 0;
     let resultsCount = 0;
     let lastTextLog = 0;
@@ -104,6 +105,7 @@ export async function sttRoutes(app: FastifyInstance) {
         if (upstream.readyState === WebSocket.OPEN) upstream.send(msg);
       }
       pending.length = 0;
+      pendingBytes = 0;
     };
 
     upstream.on('open', () => {
@@ -164,6 +166,11 @@ export async function sttRoutes(app: FastifyInstance) {
       console.error('[stt-proxy] upstream error:', err.message);
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify({ type: 'Error', message: 'Deepgram upstream error.' }));
+        // The upstream is broken — close the client socket so the browser
+        // adapter reconnects and gets a FRESH upstream. Without this, the
+        // client keeps streaming audio into a dead pipe and captions stop
+        // mid-call forever ("captions freeze" bug).
+        socket.close();
       }
     });
 
@@ -177,9 +184,68 @@ export async function sttRoutes(app: FastifyInstance) {
         console.error(`[stt-proxy] upstream handshake failed: HTTP ${res.statusCode} ${body.slice(0, 500)}`);
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: 'Error', message: `Deepgram upstream error (HTTP ${res.statusCode}).` }));
+          socket.close();
         }
       });
     });
+
+    // ── Liveness heartbeats (fixes "captions stop mid-call and never resume") ──
+    // 1) KeepAlive upstream every 30s: Deepgram closes Live sessions that sit
+    //    idle (a silence gap in a meeting is enough), which would otherwise
+    //    kill captions until someone notices. KeepAlive is the documented way
+    //    to keep the session open.
+    // 2) stt:keepalive to the client every 10s: the browser adapter's watchdog
+    //    treats "no server message for a while" as a dead socket and forces a
+    //    reconnect. This frame guarantees a healthy session never false-positives.
+    const upstreamKeepalive = setInterval(() => {
+      if (upstream.readyState === WebSocket.OPEN) {
+        try {
+          upstream.send(JSON.stringify({ type: 'KeepAlive' }));
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 30000);
+
+    const clientKeepalive = setInterval(() => {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: 'stt:keepalive', t: Date.now() }));
+      }
+    }, 10000);
+
+    // 3) Upstream TCP liveness (half-open detection): a connection can die
+    //    without a FIN/RST (network partition, NAT timeout) — neither 'error'
+    //    nor 'close' fires, keepalives still flow to the client, and captions
+    //    silently stop forever. Protocol-level ping/pong catches this: if a
+    //    ping isn't answered within the next interval, terminate() force-
+    //    closes the socket (fires 'close') -> client socket closes -> browser
+    //    adapter reconnects with a FRESH upstream.
+    let upstreamPonged = true;
+    upstream.on('pong', () => {
+      upstreamPonged = true;
+    });
+    const upstreamPing = setInterval(() => {
+      if (upstream.readyState !== WebSocket.OPEN) return;
+      if (!upstreamPonged) {
+        console.warn(`[stt:${connId}] upstream ping timeout — terminating half-open connection`);
+        try {
+          upstream.terminate();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      upstreamPonged = false;
+      try {
+        upstream.ping();
+      } catch {
+        try {
+          upstream.terminate();
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 30000);
 
     upstream.on('close', () => {
       if (socket.readyState === socket.OPEN) socket.close();
@@ -213,11 +279,22 @@ export async function sttRoutes(app: FastifyInstance) {
         upstream.send(buf);
       } else {
         pending.push(buf);
+        pendingBytes += buf.byteLength;
+        // Bound the buffer: if Deepgram is down for minutes, pending would
+        // otherwise grow unbounded (memory leak). Drop OLDEST audio (keep the
+        // most recent ~8MB) so a fresh upstream still gets current audio.
+        while (pendingBytes > 8 * 1024 * 1024 && pending.length > 1) {
+          const dropped = pending.shift() as Buffer;
+          pendingBytes -= dropped.byteLength ?? 0;
+        }
       }
     });
 
     socket.on('close', () => {
       console.log(`[stt:${connId}] client closed (audioBytes=${audioBytes}, results=${resultsCount})`);
+      clearInterval(upstreamKeepalive);
+      clearInterval(clientKeepalive);
+      clearInterval(upstreamPing);
       try {
         if (upstream.readyState === WebSocket.OPEN) {
           upstream.send(JSON.stringify({ type: 'CloseStream' }));
