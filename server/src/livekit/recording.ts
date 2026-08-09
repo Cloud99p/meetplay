@@ -52,7 +52,13 @@ export async function startRecording(
     return { ok: false, error: 'LiveKit is not configured — recording is unavailable.' };
   }
   try {
-    const output = new EncodedFileOutput({ fileType: EncodedFileType.MP4 });
+    const output = new EncodedFileOutput({
+      fileType: EncodedFileType.MP4,
+      // REQUIRED by the server: the object key the recording is stored under
+      // (LiveKit Cloud managed storage) — without it the API rejects the
+      // request with "missing or invalid field: output".
+      filepath: `meetplay/recordings/${roomName}-${Date.now()}.mp4`,
+    });
     // Record at 1080p/30 (H.264, 4.5 Mbps) instead of the egress default 720p.
     const info = await client.startRoomCompositeEgress(roomName, output, {
       encodingOptions: EncodingOptionsPreset.H264_1080P_30,
