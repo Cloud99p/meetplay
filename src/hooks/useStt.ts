@@ -10,6 +10,10 @@ interface UseSttOptions {
    *  the adapter pauses audio capture so nothing is transcribed (STT has its
    *  own getUserMedia stream, separate from the LiveKit mic). */
   muted?: boolean;
+  /** Called when the STT adapter hits a user-actionable failure (mic
+   *  permission denied, etc.) so the UI can show why nothing is being
+   *  transcribed. */
+  onError?: (message: string) => void;
   sendCaption: (speakerId: string, text: string, isFinal: boolean) => void;
 }
 
@@ -24,18 +28,25 @@ interface UseSttResult {
  * AND the room is connected; stops it otherwise. Wires utterances to the
  * server via caption:event.
  */
-export function useStt({ enabled, connected, localParticipantId, muted, sendCaption }: UseSttOptions): UseSttResult {
+export function useStt({ enabled, connected, localParticipantId, muted, onError, sendCaption }: UseSttOptions): UseSttResult {
   const adapterRef = useRef<STTAdapter | null>(null);
   const [sttEnabled, setSttEnabled] = useState(false);
 
   const sendCaptionRef = useRef(sendCaption);
   sendCaptionRef.current = sendCaption;
 
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+
   const startAdapter = useCallback(() => {
     if (adapterRef.current) return;
     const adapter = createSttAdapter(localParticipantId);
     adapter.onUtterance = (utterance) => {
       sendCaptionRef.current(utterance.speakerId, utterance.text, utterance.isFinal);
+    };
+    adapter.onError = (message) => {
+      console.warn('[useStt] adapter error:', message);
+      onErrorRef.current?.(message);
     };
     adapter.start();
     adapterRef.current = adapter;

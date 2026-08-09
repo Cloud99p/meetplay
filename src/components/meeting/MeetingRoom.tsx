@@ -26,6 +26,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [showGames, setShowGames] = useState(false);
   const [consentShown, setConsentShown] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [sttError, setSttError] = useState<string | null>(null);
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
     connected: state.connected,
     localParticipantId: state.participantId ?? undefined,
     muted: micMuted,
+    onError: setSttError,
     sendCaption: actions.sendCaption,
   });
 
@@ -165,6 +167,24 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
       {/* Consent Banner */}
       <ConsentBanner visible={consentShown} onDismiss={handleDismissConsent} />
+
+      {/* STT/mic error banner — surfaced when the adapter can't capture
+          (e.g. mic permission denied), so users see why captions are silent. */}
+      {sttError && (
+        <div
+          role="alert"
+          className="flex items-center gap-3 px-4 py-2.5 bg-destructive/10 border-b border-destructive/30 text-sm text-foreground"
+        >
+          <FiMicOff className="w-4 h-4 text-destructive flex-shrink-0" />
+          <p className="flex-1 min-w-0">{sttError}</p>
+          <button
+            onClick={() => setSttError(null)}
+            className="text-xs font-medium px-2 py-1.5 rounded-md text-muted hover:text-foreground transition-colors cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Screen share error banner (permissions policy in iframe previews) */}
       {screenShareError && (

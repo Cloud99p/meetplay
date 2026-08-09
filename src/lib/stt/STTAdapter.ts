@@ -7,6 +7,10 @@ export interface Utterance {
 
 export interface STTAdapter {
   onUtterance?: (utterance: Utterance) => void;
+  /** Called when the adapter hits a user-actionable failure (e.g. mic
+   *  permission denied). Lets the UI surface why nothing is being
+   *  transcribed instead of failing silently. */
+  onError?: (message: string) => void;
   start(): void;
   stop(): void;
   /**

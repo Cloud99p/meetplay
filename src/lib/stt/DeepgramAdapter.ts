@@ -16,6 +16,7 @@ import type { STTAdapter, Utterance } from './STTAdapter';
  */
 export class DeepgramAdapter implements STTAdapter {
   onUtterance?: (utterance: Utterance) => void;
+  onError?: (message: string) => void;
 
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
@@ -260,11 +261,40 @@ export class DeepgramAdapter implements STTAdapter {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       console.error('[DeepgramAdapter] getUserMedia failed:', err);
+      this.onError?.(
+        'Microphone blocked — allow mic access in the browser (or site settings) and toggle transcription off/on.',
+      );
       return;
     }
 
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
     this.audioContext = new Ctx();
+
+    // Chrome autoplay policy: an AudioContext created OUTSIDE a user gesture
+    // starts in the 'suspended' state. A suspended context fires ZERO
+    // onaudioprocess events, so no PCM ever reaches Deepgram even though the
+    // WS session looks connected (Metadata arrives, captions never do).
+    // getUserMedia is async, so the gesture that triggered the mic prompt has
+    // usually expired by the time we get here. Resume now; if the browser
+    // still blocks it, resume on the next click/keypress (the user is
+    // actively clicking the UI anyway).
+    if (this.audioContext.state === 'suspended') {
+      void this.audioContext.resume().catch(() => undefined);
+    }
+    if (this.audioContext.state !== 'running') {
+      const tryResume = () => {
+        if (this.audioContext?.state === 'suspended') {
+          void this.audioContext.resume().catch(() => undefined);
+        }
+        if (this.audioContext?.state === 'running') {
+          window.removeEventListener('pointerdown', tryResume);
+          window.removeEventListener('keydown', tryResume);
+        }
+      };
+      window.addEventListener('pointerdown', tryResume);
+      window.addEventListener('keydown', tryResume);
+    }
+
     this.source = this.audioContext.createMediaStreamSource(this.stream);
 
     // ScriptProcessorNode (4096-frame buffer) — universally supported and
