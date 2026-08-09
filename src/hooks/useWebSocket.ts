@@ -8,6 +8,13 @@ function getClient(): WebSocketClient {
   return sharedClient;
 }
 
+// Debug/testing handle: lets Playwright scripts inject frames (e.g. synthetic
+// caption:event) through the app's OWN socket — same path the STT adapter
+// uses — so speech-game flows can be verified end-to-end.
+if (typeof window !== 'undefined') {
+  (window as any).__meetplayWs = getClient();
+}
+
 export function useWebSocket() {
   const [connected, setConnected] = useState(false);
   const clientRef = useRef(getClient());
