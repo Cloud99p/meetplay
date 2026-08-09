@@ -24,6 +24,7 @@ export class DeepgramAdapter implements STTAdapter {
   private stream: MediaStream | null = null;
   private running = false;
   private stopped = false;
+  private muted = false;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastInterimText = '';
@@ -65,6 +66,23 @@ export class DeepgramAdapter implements STTAdapter {
         /* ignore */
       }
       this.ws = null;
+    }
+  }
+
+  /**
+   * Mute/unmute the STT capture without tearing down the socket or the
+   * Deepgram session. While muted, audio frames are dropped before being
+   * sent upstream, so nothing is transcribed or counted. Unmuting resumes
+   * the same session (no reconnect churn).
+   */
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (muted && this.processor) {
+      // Stop pulling audio while muted to save CPU; the processor stays
+      // connected so unmuting is instant.
+      this.processor.onaudioprocess = null;
+    } else if (!muted && this.processor && this.audioContext) {
+      this.processor.onaudioprocess = (e) => this.handleAudio(e);
     }
   }
 
@@ -249,19 +267,23 @@ export class DeepgramAdapter implements STTAdapter {
     // dependency-free. (AudioWorklet is the modern alternative; swap later if
     // latency becomes an issue.)
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-    this.processor.onaudioprocess = (e) => {
-      if (this.ws?.readyState !== WebSocket.OPEN) return;
-      const input = e.inputBuffer.getChannelData(0); // Float32 [-1, 1]
-      const pcm = new Int16Array(input.length);
-      for (let i = 0; i < input.length; i++) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-      }
-      this.ws.send(pcm.buffer);
-    };
+    this.processor.onaudioprocess = (e) => this.handleAudio(e);
 
     this.source.connect(this.processor);
     this.processor.connect(this.audioContext.destination);
+  }
+
+  /** Convert a Float32 audio buffer to PCM16 and send it upstream. */
+  private handleAudio(e: AudioProcessingEvent): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    if (this.muted) return;
+    const input = e.inputBuffer.getChannelData(0); // Float32 [-1, 1]
+    const pcm = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+      const s = Math.max(-1, Math.min(1, input[i]));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    this.ws.send(pcm.buffer);
   }
 
   private teardownMedia(): void {

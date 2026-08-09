@@ -15,6 +15,12 @@ interface Props {
   isHost: boolean;
   transcriptionEnabled: boolean;
   recording: boolean;
+  /** Authoritative mic state from MeetingRoom — works even when LiveKit is
+   *  disconnected (text mode) or the mic track hasn't been published yet.
+   *  Previously the icon derived from micPub?.isMuted, which is `undefined`
+   *  without a LiveKit connection, so the button always looked ON and clicking
+   *  did nothing. */
+  micMuted?: boolean;
   onToggleRecording?: () => void;
   onToggleMic?: () => void;
   onToggleCam?: () => void;
@@ -33,6 +39,7 @@ export default function ControlBar({
   isHost,
   transcriptionEnabled,
   recording,
+  micMuted,
   onToggleRecording,
   onToggleMic,
   onToggleCam,
@@ -59,7 +66,7 @@ export default function ControlBar({
     () => typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
   );
 
-  const isMicOn = !micPub?.isMuted;
+  const isMicOn = micMuted !== undefined ? !micMuted : !micPub?.isMuted;
   const isCamOn = !camPub?.isMuted;
 
   const btnClass =

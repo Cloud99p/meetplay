@@ -25,6 +25,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [showParticipants, setShowParticipants] = useState(false);
   const [showGames, setShowGames] = useState(false);
   const [consentShown, setConsentShown] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
     enabled: state.transcriptionEnabled,
     connected: state.connected,
     localParticipantId: state.participantId ?? undefined,
+    muted: micMuted,
     sendCaption: actions.sendCaption,
   });
 
@@ -67,13 +69,28 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   }, []);
 
   const handleToggleMic = useCallback(async () => {
-    if (!localParticipant) return;
-    try {
-      await localParticipant.setMicrophoneEnabled(!localParticipant.isMicrophoneEnabled);
-    } catch (e) {
-      console.error('[meeting] mic toggle error:', e);
+    // Mute state is authoritative in React state so the button ALWAYS works,
+    // even when LiveKit is disconnected (text mode) or the mic track hasn't
+    // been published yet. LiveKit is synced when available; the STT adapter
+    // (which captures its own getUserMedia stream) is muted via useStt so the
+    // app actually stops listening.
+    const next = !micMutedRef.current;
+    micMutedRef.current = next;
+    setMicMuted(next);
+    if (localParticipant) {
+      try {
+        await localParticipant.setMicrophoneEnabled(!next);
+      } catch (e) {
+        console.error('[meeting] mic toggle error:', e);
+      }
     }
   }, [localParticipant]);
+
+  // Keep the ref in sync so the callback above always reads the latest state
+  // (it's excluded from deps deliberately — LiveKit identity changes would
+  // otherwise re-create the handler and reset the toggle mid-press).
+  const micMutedRef = useRef(micMuted);
+  micMutedRef.current = micMuted;
 
   const handleToggleCam = useCallback(async () => {
     if (!localParticipant) return;
@@ -435,6 +452,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         isHost={state.isHost}
         transcriptionEnabled={state.transcriptionEnabled}
         recording={state.recording}
+        micMuted={micMuted}
         onToggleRecording={() =>
           state.recording ? actions.stopRecording() : actions.startRecording()
         }

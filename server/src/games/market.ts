@@ -48,13 +48,27 @@ export function oddsMultiplier(lockedOdds: number): number {
   return Math.min(5, Math.max(1, lockedOdds));
 }
 
-/** Count how many times the target word appears in an utterance. */
+/** Count how many times the target word appears in an utterance.
+ *
+ * Partial matches count ('roadmaps'/'roadmapping' match 'roadmap'), but only
+ * when the overlap is a meaningful stem — a token like 'a' or 'is' must NOT
+ * match a longer target word just because it's a substring of it. The old
+ * `t.includes(lower) || lower.includes(t)` matched any token that shares a
+ * letter sequence (e.g. target 'roadmap' counted the token 'a', and target
+ * 'hello' never matched cleanly). Rules:
+ *   - exact match counts
+ *   - token starts with the target (plural/derivatives) counts
+ *   - target starts with the token ONLY if the token is >= 4 chars (avoids
+ *     matching stopwords like 'a', 'to', 'is' inside longer words)
+ */
 export function countWordInText(word: string, text: string): number {
   const lower = word.toLowerCase();
   const tokens = text.toLowerCase().replace(/[^a-z0-9'-]/g, ' ').split(/\s+/).filter(Boolean);
   let count = 0;
   for (const t of tokens) {
-    if (t.includes(lower) || lower.includes(t)) count++;
+    if (t === lower) { count++; continue; }
+    if (t.startsWith(lower)) { count++; continue; }
+    if (lower.startsWith(t) && t.length >= 4) count++;
   }
   return count;
 }

@@ -23,6 +23,7 @@ export class WebSpeechAdapter implements STTAdapter {
     recognition.lang = 'en-US';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      if (this.muted) return;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         this.onUtterance?.({
@@ -50,4 +51,16 @@ export class WebSpeechAdapter implements STTAdapter {
     }
     this.running = false;
   }
+
+  /** Mute/unmute WebSpeech recognition (pauses transcription). */
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (muted && this.recognition) {
+      this.recognition.stop();
+    } else if (!muted && this.running && !this.recognition) {
+      this.start();
+    }
+  }
+
+  private muted = false;
 }

@@ -286,16 +286,29 @@ async function handleMessage(
       const room = await getRoomById(roomId);
       if (!room?.transcription_enabled) return;
 
-      const speakerId = String(payload.speakerId ?? senderId);
+      const rawSpeakerId = String(payload.speakerId ?? senderId);
       const text = String(payload.text ?? '').trim();
       if (!text) return;
       const isFinal = Boolean(payload.isFinal);
 
-      // Resolve speaker name
+      // Resolve the REAL speaker. Deepgram emits synthetic diarization ids
+      // ('speaker-0', 'speaker-1', 'unknown'), and WebSpeech emits 'local'.
+      // These don't match participant rows, so bingo cards (keyed by real
+      // participant id) would never mark and stats/transcripts would be
+      // attributed to a ghost speaker. Every client only transcribes its OWN
+      // mic, so the sender IS the speaker — map synthetic ids back to the
+      // sender's real participant id.
+      let speakerId = rawSpeakerId;
       let speakerName: string | null = sender.name;
-      if (speakerId !== senderId) {
-        const speaker = await getParticipantById(speakerId);
-        speakerName = speaker?.name ?? null;
+      if (rawSpeakerId !== senderId) {
+        const speaker = await getParticipantById(rawSpeakerId);
+        if (speaker) {
+          speakerName = speaker.name ?? null;
+        } else {
+          // Synthetic id (speaker-N / unknown / local) → attribute to sender
+          speakerId = senderId;
+          speakerName = sender.name;
+        }
       }
 
       // Persist final utterances (synthetic mock IDs may fail FK — that's OK)

@@ -82,7 +82,7 @@ export class MockAdapter implements STTAdapter {
     script.forEach((line, index) => {
       const speakerId = index === 0 ? this.localSpeakerId : MOCK_SPEAKERS[(index - 1) % MOCK_SPEAKERS.length];
       const timer = setTimeout(() => {
-        if (!this.running) return;
+        if (!this.running || this.muted) return;
         this.onUtterance?.({
           speakerId,
           text: line.text,
@@ -104,4 +104,13 @@ export class MockAdapter implements STTAdapter {
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];
   }
+
+  /** Mute/unmute the mock stream (used by the ControlBar mic button). */
+  setMuted(muted: boolean): void {
+    // Mock mode has no real audio — the mic button doesn't need to gate it,
+    // but honor the flag by suppressing utterances while muted.
+    this.muted = muted;
+  }
+
+  private muted = false;
 }

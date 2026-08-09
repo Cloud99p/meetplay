@@ -6,6 +6,10 @@ interface UseSttOptions {
   enabled: boolean;          // transcription toggled on
   connected: boolean;        // WS connected
   localParticipantId?: string;
+  /** Mirrors the ControlBar mic button: true = user muted the mic. When true,
+   *  the adapter pauses audio capture so nothing is transcribed (STT has its
+   *  own getUserMedia stream, separate from the LiveKit mic). */
+  muted?: boolean;
   sendCaption: (speakerId: string, text: string, isFinal: boolean) => void;
 }
 
@@ -20,7 +24,7 @@ interface UseSttResult {
  * AND the room is connected; stops it otherwise. Wires utterances to the
  * server via caption:event.
  */
-export function useStt({ enabled, connected, localParticipantId, sendCaption }: UseSttOptions): UseSttResult {
+export function useStt({ enabled, connected, localParticipantId, muted, sendCaption }: UseSttOptions): UseSttResult {
   const adapterRef = useRef<STTAdapter | null>(null);
   const [sttEnabled, setSttEnabled] = useState(false);
 
@@ -61,6 +65,11 @@ export function useStt({ enabled, connected, localParticipantId, sendCaption }: 
     return () => stopAdapter();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, startAdapter, stopAdapter]);
+
+  // Mirror the mic button state into the adapter (pause capture when muted).
+  useEffect(() => {
+    adapterRef.current?.setMuted(muted ?? false);
+  }, [muted]);
 
   return { sttEnabled, paused: enabled && !connected };
 }
