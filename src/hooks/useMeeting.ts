@@ -6,6 +6,7 @@ import type { ChatMessage } from '../types/chat';
 import * as api from '../lib/api';
 import { connectToLiveKitWithRetry, reconnectLiveKit } from '../lib/livekit';
 import { saveSessionSnapshot, clearSessionSnapshot, getSessionSnapshot } from '../lib/session';
+import { buildBingoCard } from '../lib/games/bingo';
 import { useWebSocket } from './useWebSocket';
 
 export interface MeetingState {
@@ -489,9 +490,18 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('bingo:open', (payload: { roundId: string; roundNumber: number }) => {
         setBingo((prev) => {
           if (prev && prev.roundId === payload.roundId) return prev;
-          return prev
-            ? { ...prev, roundId: payload.roundId, roundNumber: payload.roundNumber, myMarks: [], winner: null }
-            : prev;
+          // First round: prev is null, so the old code returned null and the
+          // card never rendered — clicking Buzzword Bingo did nothing. Also
+          // rebuild the card on EVERY new round: the seed (roomId +
+          // participantId + roundNumber) changes per round, so a new round
+          // must deal a fresh card even when prev exists.
+          return {
+            roundId: payload.roundId,
+            roundNumber: payload.roundNumber,
+            myCard: buildBingoCard(roomIdRef.current ?? '', participantId ?? '', payload.roundNumber),
+            myMarks: [],
+            winner: null,
+          };
         });
       })
     );
