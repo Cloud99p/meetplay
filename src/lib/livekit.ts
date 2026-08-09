@@ -213,15 +213,23 @@ function resolveLiveKitUrl(url?: string): string {
  * BEFORE attempting a WebSocket connection (which takes 8 s to time out).
  * Returns `true` if the server responded (any HTTP status), `false` if the
  * request itself failed (network error / unreachable).
+ *
+ * The token is passed as a query param (same as the SDK's own validate call)
+ * — LiveKit Cloud returns 401 "missing header" when no token is sent, which
+ * would spam the console on every connect even though the check itself
+ * succeeds (any status < 500 means the media server is reachable).
  */
-async function probeLiveKit(url: string): Promise<boolean> {
+async function probeLiveKit(url: string, token?: string): Promise<boolean> {
   try {
     const httpUrl = url
       .replace(/^wss:/, 'https:')
       .replace(/^ws:/, 'http:');
+    const validateUrl = token
+      ? `${httpUrl}/rtc/validate?access_token=${encodeURIComponent(token)}`
+      : `${httpUrl}/rtc/validate`;
     const ctrl = new AbortController();
     const id = setTimeout(() => ctrl.abort(), 2_000);
-    const res = await fetch(`${httpUrl}/rtc/validate`, {
+    const res = await fetch(validateUrl, {
       method: 'GET',
       signal: ctrl.signal,
     });
@@ -246,7 +254,7 @@ export async function connectToLiveKit(
 
   // Quick probe: if LiveKit isn't reachable through the proxy, fail fast
   // instead of waiting for the SDK's WebSocket timeout (8 s).
-  const reachable = await probeLiveKit(livekitUrl);
+  const reachable = await probeLiveKit(livekitUrl, token);
   if (!reachable) {
     const room = createRoom();
     return {
