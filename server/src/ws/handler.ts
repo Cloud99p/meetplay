@@ -311,6 +311,10 @@ async function handleMessage(
         }
       }
 
+      console.log(
+        `[caption] room=${roomId.slice(0, 8)} sender=${sender.name} rawSpeaker=${rawSpeakerId} -> speaker=${speakerId} final=${isFinal} text="${text.slice(0, 150)}"`,
+      );
+
       // Persist final utterances (synthetic mock IDs may fail FK — that's OK)
       if (isFinal) {
         try {

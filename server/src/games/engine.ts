@@ -181,11 +181,15 @@ export class RoomGameEngine {
 
     this.nameById.set(utterance.speakerId, this.nameById.get(utterance.speakerId) ?? utterance.speakerId);
 
+    const summary = `[engine:${this.roomId.slice(0, 8)}] addUtterance speaker=${utterance.speakerId} text="${utterance.text.slice(0, 120)}"`;
+    const gameHits: string[] = [];
+
     // ── Layer A: market live count ──
     if (this.market && !this.market.resolved) {
       const hits = countWordInText(this.market.targetWord, utterance.text);
       if (hits > 0) {
         this.market.liveCount += hits;
+        gameHits.push(`market("${this.market.targetWord}")+${hits}`);
         this.broadcastMarketUpdate(true /* throttled */);
       }
     }
@@ -195,6 +199,7 @@ export class RoomGameEngine {
       const hits = countWordInText(this.flash.targetWord, utterance.text);
       if (hits > 0) {
         this.flash.liveCount += hits;
+        gameHits.push(`flash("${this.flash.targetWord}")+${hits}`);
         this.broadcastFlashUpdate(true /* throttled */);
       }
     }
@@ -205,16 +210,20 @@ export class RoomGameEngine {
       const hits = countWordInText(um.state.targetWord, utterance.text);
       if (hits > 0) {
         um.state.liveCount += hits;
+        gameHits.push(`userMarket("${um.state.targetWord}")+${hits}`);
         this.broadcastUserMarketUpdate(um.state.targetWord, true /* throttled */);
       }
     }
 
     // ── Layer A: bingo auto-marking ──
-    this.markBingo(utterance);
+    const bingoHits = this.markBingo(utterance);
+    if (bingoHits > 0) gameHits.push(`bingo+${bingoHits}marks`);
 
     // ── Layer A: stats ──
     updateSpeakerStats(this.speakerStats, utterance.speakerId, utterance.text);
     this.statsDirty = true;
+
+    console.log(gameHits.length > 0 ? `${summary} -> GAME HITS: ${gameHits.join(', ')}` : summary);
 
     // ── Layer B: quick rounds ──
     this.maybeStartRound();
@@ -935,14 +944,14 @@ export class RoomGameEngine {
     }
   }
 
-  private markBingo(utterance: UtteranceInfo): void {
-    if (!this.bingo || this.bingo.winner) return;
+  private markBingo(utterance: UtteranceInfo): number {
+    if (!this.bingo || this.bingo.winner) return 0;
     const b = this.bingo;
     const card = b.cards.get(utterance.speakerId);
-    if (!card) return;
+    if (!card) return 0;
 
     const hits = matchingCardIndices(utterance.text, card);
-    if (hits.length === 0) return;
+    if (hits.length === 0) return 0;
 
     let marks = b.marks.get(utterance.speakerId);
     if (!marks) {
@@ -950,7 +959,7 @@ export class RoomGameEngine {
       b.marks.set(utterance.speakerId, marks);
     }
     const newHits = hits.filter((i) => !marks!.has(i));
-    if (newHits.length === 0) return;
+    if (newHits.length === 0) return 0;
     newHits.forEach((i) => marks!.add(i));
 
     // Private update so each player only sees their own card fill up
@@ -985,6 +994,7 @@ export class RoomGameEngine {
         this.openBingoRound(b.roundNumber + 1);
       }, BINGO_NEXT_ROUND_DELAY_MS);
     }
+    return newHits.length;
   }
 
   getBingoSnapshot(participantId: string): {

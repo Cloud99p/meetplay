@@ -35,6 +35,8 @@ export async function sttRoutes(app: FastifyInstance) {
 
     const model = cfg.deepgramModel;
     const isFlux = model.startsWith('flux');
+    const connId = Math.random().toString(36).slice(2, 8);
+    console.log(`[stt:${connId}] client connected (model=${model})`);
 
     const params = new URLSearchParams({
       model,
@@ -78,6 +80,9 @@ export async function sttRoutes(app: FastifyInstance) {
 
     let upstreamOpen = false;
     const pending: (string | Buffer)[] = [];
+    let audioBytes = 0;
+    let resultsCount = 0;
+    let lastTextLog = 0;
 
     const flushPending = () => {
       if (!upstreamOpen) return;
@@ -89,12 +94,37 @@ export async function sttRoutes(app: FastifyInstance) {
 
     upstream.on('open', () => {
       upstreamOpen = true;
+      console.log(`[stt:${connId}] upstream Deepgram OPEN`);
       flushPending();
     });
 
     // Upstream -> client (Results JSON, TurnInfo events, Metadata, etc.)
     upstream.on('message', (data) => {
       if (socket.readyState === socket.OPEN) socket.send(data.toString());
+      // ---- diagnostic logging: does Deepgram actually hear/transcribe? ----
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'Metadata') {
+          console.log(`[stt:${connId}] Deepgram Metadata received (session ready)`);
+        } else if (msg.type === 'Results') {
+          resultsCount++;
+          const alt = msg.channel?.alternatives?.[0];
+          const transcript = alt?.transcript ?? '';
+          const isFinal = !!msg.is_final;
+          // Log finals always; log interims at most once per 3s (they're noisy)
+          const now = Date.now();
+          if (isFinal || now - lastTextLog > 3000) {
+            lastTextLog = now;
+            const preview = transcript.slice(0, 120) || '(empty transcript)';            console.log(
+              `[stt:${connId}] Deepgram ${isFinal ? 'FINAL' : 'interim'} transcript="${preview}" words=${alt?.words?.length ?? 0} (results#${resultsCount})`,
+            );
+          }
+        } else if (msg.type === 'SpeechStarted') {
+          console.log(`[stt:${connId}] Deepgram SpeechStarted`);
+        }
+      } catch {
+        /* non-JSON upstream frame */
+      }
     });
 
     upstream.on('error', (err) => {
@@ -109,15 +139,25 @@ export async function sttRoutes(app: FastifyInstance) {
     });
 
     // Client -> upstream (Configure JSON, then binary PCM16 audio)
-    socket.on('message', (data) => {
+    socket.on('message', (data: any) => {
+      if (typeof data === 'string') {
+        // JSON control message (Configure) — log it, forward as-is
+        console.log(`[stt:${connId}] client msg: ${data.slice(0, 200)}`);
+        if (upstreamOpen && upstream.readyState === WebSocket.OPEN) upstream.send(data);
+        else pending.push(data);
+        return;
+      }
+      const buf = data as Buffer;
+      audioBytes += buf.byteLength;
       if (upstreamOpen && upstream.readyState === WebSocket.OPEN) {
-        upstream.send(data as Buffer);
+        upstream.send(buf);
       } else {
-        pending.push(data as Buffer);
+        pending.push(buf);
       }
     });
 
     socket.on('close', () => {
+      console.log(`[stt:${connId}] client closed (audioBytes=${audioBytes}, results=${resultsCount})`);
       try {
         if (upstream.readyState === WebSocket.OPEN) {
           upstream.send(JSON.stringify({ type: 'CloseStream' }));
