@@ -31,8 +31,11 @@ ok('scoreSubmission wrong=0', scoreSubmission(500, false, 30000) === 0);
 const bank = buildWordBank(utts);
 ok('buildWordBank dedup+sort', bank.includes('roadmap') && bank.length === new Set(bank).size, `${bank.length} words`);
 ok('validateWord', validateWord('roadmap', bank) === true && validateWord('zzzqqq', bank) === false);
-const sc = calculateScore(['roadmap', 'beta'], bank, [{ words: ['beta'] }]);
-ok('calculateScore uniqueness bonus', sc.points === 700 && sc.uniquenessBonus === 500, `points=${sc.points} bonus=${sc.uniquenessBonus}`);
+// Letter pool spelled from the played words (pool arg), other submissions as
+// the 4th arg: 'roadmap' is unique (+500), 'beta' was played by someone else.
+const pool = [...'roadmapbeta'.split('')];
+const sc = calculateScore(['roadmap', 'beta'], bank, pool, [{ words: ['beta'] }]);
+ok('calculateScore uniqueness bonus', sc.points === 1350 && sc.uniquenessBonus === 500, `points=${sc.points} bonus=${sc.uniquenessBonus}`);
 
 // wordCountBet
 const target = selectTargetWord(utts);

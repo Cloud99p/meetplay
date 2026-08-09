@@ -60,6 +60,10 @@ try {
     await sleep(300);
   }
 
+  // Rounds are player-chosen since the redesign (only Flash WCB auto-opens):
+  // start one explicitly once there's enough conversation to build from.
+  hostWs.send(JSON.stringify({ type: 'game:start', payload: { gameType: 'who_said_that' } }));
+
   // Wait for the round to open (engine needs 8+ utterances)
   const deadline = Date.now() + 8000;
   let opened = null;

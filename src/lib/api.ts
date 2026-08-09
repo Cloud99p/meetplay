@@ -204,3 +204,22 @@ export async function getRecap(roomId: string, roomToken: string): Promise<Recap
     headers: { Authorization: `Bearer ${roomToken}` },
   });
 }
+
+/** Fetch a recap via a signed, expiring share link (no room token needed). */
+export async function getRecapByShare(roomId: string, shareToken: string): Promise<RecapData> {
+  return request<RecapData>(`/api/rooms/${roomId}/recap?share=${encodeURIComponent(shareToken)}`);
+}
+
+/**
+ * Mint a signed, expiring share link for a recap. Requires a valid room
+ * token; the returned `url` is a relative path the caller should absolutize
+ * against `window.location.origin`. Expires server-side after 7 days.
+ */
+export async function createRecapShareLink(
+  roomId: string,
+  roomToken: string
+): Promise<{ url: string; expiresIn: string }> {
+  return request<{ url: string; expiresIn: string }>(`/api/rooms/${roomId}/recap/share`, {
+    headers: { Authorization: `Bearer ${roomToken}` },
+  });
+}

@@ -52,6 +52,10 @@ try {
     await sleep(250);
   }
 
+  // Rounds are player-chosen since the redesign (only Flash WCB auto-opens):
+  // start one explicitly once there's enough conversation to build from.
+  ws.send(JSON.stringify({ type: 'game:start', payload: { gameType: 'who_said_that' } }));
+
   // Wait for a round to open then finish (first game is who_said_that, 30s)
   const waitFor = async (type, timeoutMs) => {
     const deadline = Date.now() + timeoutMs;
@@ -81,8 +85,10 @@ try {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${create.token}` },
   }).catch(() => {});
 
-  // Fetch recap
-  const recapRes = await fetch(`${BASE}/api/rooms/${roomId}/recap`);
+  // Fetch recap (requires the room token since the security audit)
+  const recapRes = await fetch(`${BASE}/api/rooms/${roomId}/recap`, {
+    headers: { Authorization: `Bearer ${create.token}` },
+  });
   const recap = await recapRes.json();
   ok('recap loads', recapRes.ok && !!recap.room, `status=${recapRes.status}`);
   ok('recap has transcript', Array.isArray(recap.transcript) && recap.transcript.length > 0, `${recap.transcript?.length ?? 0} lines`);

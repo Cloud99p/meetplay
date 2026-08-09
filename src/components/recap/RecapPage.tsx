@@ -31,9 +31,19 @@ export default function RecapPage({ roomId, onBack }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        // The recap contains the full transcript — the server requires a valid
-        // room token (sessionStorage) so a bare /recap/:roomId link can't be
-        // scraped by anyone who guesses the UUID.
+        // Two ways in:
+        //  1. A signed, expiring share link (?share= in the URL) — no room
+        //     token needed; works for anyone with the link until it expires.
+        //  2. A live meeting session (room token in sessionStorage).
+        // Without either, the recap is refused — a bare /recap/:roomId link
+        // can't be scraped by anyone who guesses the UUID.
+        const params = new URLSearchParams(window.location.search);
+        const shareToken = params.get('share');
+        if (shareToken) {
+          const data = await api.getRecapByShare(roomId, shareToken);
+          setRecap(data);
+          return;
+        }
         const token = api.getRoomToken();
         if (!token) {
           setError('This recap requires an active meeting session. Join the meeting to view it.');
@@ -94,10 +104,30 @@ export default function RecapPage({ roomId, onBack }: Props) {
     URL.revokeObjectURL(url);
   };
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  /**
+   * Share recap: mint a signed, expiring share link server-side (the raw
+   * meeting URL carries no credential, so copying it would hand out a link
+   * that 401s for anyone else). The minted link works for 7 days, then dies.
+   */
+  const copyLink = async () => {
+    try {
+      const token = api.getRoomToken();
+      if (!token) {
+        setCopied(false);
+        return;
+      }
+      const { url } = await api.createRecapShareLink(roomId, token);
+      const absolute = new URL(url, window.location.origin).href;
+      await navigator.clipboard.writeText(absolute);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fall back to copying the current URL — better than nothing if the
+      // share endpoint is unreachable, though it will 401 for other users.
+      navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const formatDuration = (sec: number) => {

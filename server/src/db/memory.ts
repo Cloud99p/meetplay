@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { withSummary, type RecapBase, type RecapData } from './recapSummary.js';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -8,7 +9,7 @@ export interface RoomRow {
   password_hash: string | null;
   host_participant_id: string | null;
   transcription_enabled: boolean;
-  state: string;
+  state: 'active' | 'locked' | 'ended';
   created_at: string;
   ended_at: string | null;
 }
@@ -408,40 +409,11 @@ export async function getGameSubmissions(roundId: string) {
 }
 
 // ─── Recap ───────────────────────────────────────────────────
+// getRecap assembles the raw rows into the shared RecapBase shape, then
+// delegates leaderboard + key-quotes scoring to the single shared
+// `withSummary` in recapSummary.ts (both DB backends call the same code).
 
-export interface RecapData {
-  room: {
-    id: string;
-    name: string | null;
-    createdAt: string;
-    endedAt: string | null;
-    duration: number;
-  };
-  participants: Array<{
-    id: string;
-    name: string;
-    isHost: boolean;
-    joinedAt: string;
-  }>;
-  transcript: Array<{
-    id: string;
-    participantName: string;
-    text: string;
-    createdAt: string;
-  }>;
-  gameRounds: Array<{
-    id: string;
-    gameType: string;
-    roundData: unknown;
-    startedAt: string;
-    endedAt: string | null;
-    submissions: Array<{
-      participantName: string;
-      submission: unknown;
-      score: number;
-    }>;
-  }>;
-}
+export type { RecapData } from './recapSummary.js';
 
 export async function getRecap(roomId: string): Promise<RecapData | null> {
   const room = await getRoomById(roomId);
@@ -451,7 +423,7 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
   const transcript = await getTranscriptEvents(roomId);
   const gameRounds = await getGameRounds(roomId);
 
-  const gameRoundsWithSubs = await Promise.all(
+  const gameRoundsWithSubs: RecapBase['gameRounds'] = await Promise.all(
     gameRounds.map(async (gr) => {
       const submissions = await getGameSubmissions(gr.id);
       return {
@@ -460,8 +432,8 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
         roundData: gr.round_data,
         startedAt: gr.started_at,
         endedAt: gr.ended_at,
-        state: (gr as any).state ?? (gr as any).round_state,
-        submissions: submissions.map((s: any) => ({
+        state: gr.state,
+        submissions: submissions.map((s) => ({
           participantId: s.participant_id,
           participantName: s.participant_name,
           submission: s.submission,
@@ -475,7 +447,7 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
   const ended = room.ended_at ? new Date(room.ended_at).getTime() : Date.now();
   const durationSec = Math.floor((ended - started) / 1000);
 
-  const recapBase = {
+  const recapBase: RecapBase = {
     room: {
       id: room.id,
       name: room.name,
@@ -489,7 +461,7 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
       isHost: p.is_host,
       joinedAt: p.joined_at,
     })),
-    transcript: transcript.map((t: any) => ({
+    transcript: transcript.map((t) => ({
       id: t.id,
       participantName: t.participant_name,
       text: t.text,
@@ -498,63 +470,5 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
     gameRounds: gameRoundsWithSubs,
   };
 
-  // Attach leaderboard + key quotes computed from rounds
-  return withSummary(recapBase as any);
-}
-
-/**
- * Compute leaderboard (pointsPerRound primary, total tiebreak) and key quotes
- * (most-missed Who Said That quotes ranked by correct-guess count).
- */
-function withSummary(recap: any) {
-  // ---- Leaderboard ----
-  const totals = new Map<string, { total: number; roundsPlayed: number; name: string }>();
-  for (const p of recap.participants as Array<{ id: string; name: string }>) {
-    totals.set(p.id, { total: 0, roundsPlayed: 0, name: p.name });
-  }
-  for (const round of recap.gameRounds) {
-    for (const s of round.submissions ?? []) {
-      const pid = (s as any).participantId ?? (s as any).participant_id;
-      const entry = totals.get(pid);
-      if (!entry) continue;
-      entry.total += s.score ?? 0;
-      if (round.state === 'scored' || round.state === 'locked') {
-        entry.roundsPlayed++;
-      }
-    }
-  }
-  const leaderboard = Array.from(totals.entries())
-    .filter(([_, v]) => v.roundsPlayed > 0)
-    .map(([id, v]) => ({
-      participantId: id,
-      participantName: v.name,
-      score: v.total,
-      pointsPerRound: v.roundsPlayed > 0 ? Math.round((v.total / v.roundsPlayed) * 100) / 100 : 0,
-      roundsPlayed: v.roundsPlayed,
-    }))
-    .sort((a, b) => {
-      const ppr = b.pointsPerRound - a.pointsPerRound;
-      return ppr !== 0 ? ppr : b.score - a.score;
-    });
-
-  // ---- Key quotes ----
-  const keyQuotes: Array<{ quote: string; speakerName: string; correctGuesses: number; totalGuesses: number }> = [];
-  for (const round of recap.gameRounds) {
-    if (round.gameType !== 'who_said_that') continue;
-    const rd = round.roundData as { quote?: string; speakerId?: string } | null;
-    if (!rd?.quote) continue;
-    const speaker = recap.participants.find((p: any) => p.id === rd.speakerId);
-    const subs = (round.submissions ?? []) as Array<{ submission?: { answer?: string }; score?: number }>;
-    const correctGuesses = subs.filter((s) => s.submission?.answer === rd.speakerId).length;
-    keyQuotes.push({
-      quote: rd.quote,
-      speakerName: speaker?.name ?? 'Unknown',
-      correctGuesses,
-      totalGuesses: subs.length,
-    });
-  }
-  // Most memorable = most people correctly attributed (descending)
-  keyQuotes.sort((a, b) => b.correctGuesses - a.correctGuesses);
-
-  return { ...recap, leaderboard, keyQuotes };
+  return withSummary(recapBase);
 }

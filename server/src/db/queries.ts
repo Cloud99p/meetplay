@@ -61,4 +61,4 @@ export const getGameSubmissions = impl.getGameSubmissions;
 // ─── Recap ──────────────────────────────────────────────────
 
 export const getRecap = impl.getRecap;
-export type RecapData = import('./memory.js').RecapData;
+export type RecapData = import('./recapSummary.js').RecapData;
