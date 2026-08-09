@@ -14,6 +14,14 @@ import {
   updateParticipantCamera,
 } from '../db/queries.js';
 import { channelManager } from './channels.js';
+
+/**
+ * Finals below this confidence are still broadcast as captions (UI dims
+ * them) but are excluded from games, stats, the recap transcript and the
+ * Omnilearn graph, so shaky turns don't pollute word counts.
+ * Env: CAPTION_CONFIDENCE_FLOOR (default 0.5).
+ */
+const CONFIDENCE_FLOOR = Number(process.env.CAPTION_CONFIDENCE_FLOOR ?? 0.5);
 import { encode, decode, type ServerMessage } from './messages.js';
 import { getGameEngine } from '../games/engine.js';
 import { endMeetingRoom } from '../endMeeting.js';
@@ -291,6 +299,9 @@ async function handleMessage(
       if (!text) return;
       const isFinal = Boolean(payload.isFinal);
       const confidence = typeof payload.confidence === 'number' ? payload.confidence : undefined;
+      // Low-confidence finals: still shown as captions (UI dims them), but
+      // excluded from games/recap/DB so shaky turns don't pollute counts.
+      const belowFloor = isFinal && typeof confidence === 'number' && confidence < CONFIDENCE_FLOOR;
 
       // Resolve the REAL speaker. Deepgram emits synthetic diarization ids
       // ('speaker-0', 'speaker-1', 'unknown'), and WebSpeech emits 'local'.
@@ -313,11 +324,11 @@ async function handleMessage(
       }
 
       console.log(
-        `[caption] room=${roomId.slice(0, 8)} sender=${sender.name} rawSpeaker=${rawSpeakerId} -> speaker=${speakerId} final=${isFinal} conf=${confidence?.toFixed(2) ?? '-'} text="${text.slice(0, 150)}"`,
+        `[caption] room=${roomId.slice(0, 8)} sender=${sender.name} rawSpeaker=${rawSpeakerId} -> speaker=${speakerId} final=${isFinal} conf=${confidence?.toFixed(2) ?? '-'}${belowFloor ? ` DROPPED (below ${CONFIDENCE_FLOOR})` : ''} text="${text.slice(0, 150)}"`,
       );
 
       // Persist final utterances (synthetic mock IDs may fail FK — that's OK)
-      if (isFinal) {
+      if (isFinal && !belowFloor) {
         try {
           await saveTranscriptEvent({ roomId, participantId: speakerId, text, isFinal });
         } catch {
@@ -345,7 +356,8 @@ async function handleMessage(
       // the engine would double/triple-count every word during continuous
       // speech (Word Count Bet, Bingo marks, speaker stats, recap pool).
       // Interims still broadcast above for the live caption overlay.
-      if (isFinal) {
+      // Low-confidence finals (below the floor) are excluded too.
+      if (isFinal && !belowFloor) {
         const engine = getGameEngine(roomId);
         engine.addUtterance({ speakerId, text, timestamp: Date.now() });
       }
