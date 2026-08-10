@@ -27,3 +27,26 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Diagnostic / scratch artifacts (ad-hoc debugging, not part of the product)
+_api-*.txt
+_dump_*.js
+_endrefs.txt
+_render-test.txt
+_routes.txt
+dg-lines.txt
+guestbet*.out
+seg.out
+open-btn-debug.png
+probe-*.out
+scripts/_check-*
+scripts/_railway-*
+scripts/browser-*-debug.mjs
+scripts/browser-open-*.mjs
+scripts/browser-bingo-precise.mjs
+scripts/browser-bet-bingo-test.mjs
+scripts/browser-game-click-test.mjs
+scripts/browser-guest-bet-debug.mjs
+scripts/game-start-probe.mjs
+_slides.txt
+_status.txt

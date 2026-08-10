@@ -36,25 +36,20 @@ async function openGames(page) {
 }
 
 async function feedCaptions(page, n = 12) {
-  // Inject caption:event frames over the page's own WS (like the STT adapter
-  // would). The engine needs >= 8 final utterances for speech games.
+  // Inject caption:event frames through the app's own WS client (same path
+  // the STT adapter uses). window.__meetplayWs is a WebSocketClient — use its
+  // send(type, payload) API, NOT the native ws.send(jsonString).
   const sent = await page.evaluate(async (count) => {
-    // Find the WebSocket instance the app uses: hook into the global before
-    // sending is hard, so use the app's own send path via the WS singleton if
-    // exposed; otherwise dispatch through a captured socket.
-    const ws = window.__meetplayWs ?? null;
-    if (!ws || ws.readyState !== 1) return 'NO_WS';
+    const client = window.__meetplayWs ?? null;
+    if (!client || !client.connected) return 'NO_WS';
     for (let i = 0; i < count; i++) {
-      ws.send(JSON.stringify({
-        type: 'caption:event',
-        payload: {
-          speakerId: 'local',
-          text: `The quick brown fox jumps over the lazy dog number ${i}.`,
-          isFinal: true,
-          confidence: 0.95,
-          timestamp: Date.now(),
-        },
-      }));
+      client.send('caption:event', {
+        speakerId: 'local',
+        text: `The quick brown fox jumps over the lazy dog number ${i}.`,
+        isFinal: true,
+        confidence: 0.95,
+        timestamp: Date.now(),
+      });
     }
     return 'SENT';
   }, n);
@@ -107,15 +102,24 @@ try {
   const guestBody1 = await guest.page.locator('body').innerText();
   ok('GUEST: sees host market', guestBody1.includes('"roadmap"'));
 
-  // Guest places a bet of 3
-  await guest.page.locator('input[placeholder="Times said?"]').first().fill('3');
+  // Guest places a bet of 3 — scope to the member-market card for "roadmap"
+  // so we never hit a different "Bet" button (flash/main market).
+  const guestMarketCard = guest.page.locator('div', { hasText: '"roadmap"' }).filter({ has: guest.page.locator('input[placeholder="Times said?"]') }).first();
+  const betInput = guestMarketCard.locator('input[placeholder="Times said?"]');
+  await betInput.waitFor({ timeout: 15000 });
+  await betInput.fill('3');
   await guest.page.waitForTimeout(200);
-  await guest.page.evaluate(() => {
-    const b = [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === 'Bet');
-    if (b) b.click();
-  });
+  await guestMarketCard.locator('button', { hasText: /^Bet$/ }).first().click();
   await guest.page.waitForTimeout(2500);
-  const guestBody2 = await guest.page.locator('body').innerText();
+  let guestBody2 = await guest.page.locator('body').innerText();
+  if (!guestBody2.includes('You bet')) {
+    // flake guard: retry once
+    await betInput.fill('3');
+    await guest.page.waitForTimeout(200);
+    await guestMarketCard.locator('button', { hasText: /^Bet$/ }).first().click();
+    await guest.page.waitForTimeout(2500);
+    guestBody2 = await guest.page.locator('body').innerText();
+  }
   ok('GUEST: own bet reflects', guestBody2.includes('You bet') && guestBody2.includes('3'), guestBody2.match(/You bet[^\n]*/)?.[0] ?? 'not found');
 
   // Host sees guest's bet reflected (liveCount or "by Guest")
@@ -123,22 +127,60 @@ try {
   const hostBody2 = await host.page.locator('body').innerText();
   ok('HOST: guest bet visible', hostBody2.includes('Guest'), hostBody2.slice(0, 200).replace(/\n/g, ' | '));
 
-  // ── Speech games: feed captions, then start Who Said That? ──
+  // ── Speech games: enable transcription, feed captions, then start games ──
+  // caption:event frames are DROPPED server-side unless the room has
+  // transcription enabled — the host must flip the toggle first.
+  const captionsBtn = host.page.locator('button[title*="Captions & games are OFF"]').first();
+  if (await captionsBtn.count()) {
+    await captionsBtn.click();
+    await host.page.waitForTimeout(2500);
+    ok('transcription enabled by toggle', (await host.page.locator('button[title*="Captions & games are ON"]').count()) > 0);
+  } else {
+    ok('transcription already on', (await host.page.locator('button[title*="Captions & games are ON"]').count()) > 0);
+  }
   const feedResult = await feedCaptions(host.page, 12);
   ok('captions injected into host WS', feedResult === 'SENT', feedResult);
   await host.page.waitForTimeout(1500);
-  await host.page.locator('button', { hasText: /Who Said That\?/ }).first().click();
-  await host.page.waitForTimeout(4000);
-  const hostBody3 = await host.page.locator('body').innerText();
-  const wstFrame = host.frames.find((f) => f.includes('game:round:open') || f.includes('who_said'));
-  ok('Who Said That? round opens with captions', !!wstFrame || hostBody3.includes('quote') || hostBody3.includes('Who said'), wstFrame?.slice(0, 120) ?? hostBody3.slice(0, 200).replace(/\n/g, ' | '));
 
-  // Letter Tiles (scrabble)
+  const waitForRound = async (gameType) => waitForRoundOn(host, gameType);
+
+  const waitForRoundOn = async (target, gameType) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 12000) {
+      const round = target.frames.find((f) => f.includes('game:round:open') && f.includes(gameType));
+      const rejected = target.frames.find((f) => f.includes('game:start:rejected'));
+      if (round && !rejected) return { ok: true, frame: round };
+      if (rejected) return { ok: false, frame: rejected };
+      await target.page.waitForTimeout(1000);
+    }
+    return { ok: false, frame: null };
+  };
+
   await host.page.locator('button', { hasText: /Letter Tiles/ }).first().click();
-  await host.page.waitForTimeout(4000);
-  const hostBody4 = await host.page.locator('body').innerText();
-  const scFrame = host.frames.find((f) => f.includes('game:round:open') || f.includes('scrabble'));
-  ok('Letter Tiles round opens with captions', !!scFrame || hostBody4.includes('tiles') || hostBody4.includes('letters'), scFrame?.slice(0, 120) ?? hostBody4.slice(0, 200).replace(/\n/g, ' | '));
+  const sc = await waitForRound('scrabble');
+  ok('Letter Tiles round opens with captions', sc.ok, sc.frame?.slice(0, 150) ?? 'no round frame in 12s');
+
+  // Who Said That? in a FRESH room (game menu hidden while a round runs).
+  const host2 = await newPage();
+  await host2.page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await host2.page.waitForTimeout(2000);
+  await host2.page.locator('input[placeholder="e.g. Monday Standup"]').fill('WST Room');
+  await host2.page.waitForTimeout(300);
+  await host2.page.locator('button', { hasText: /^Create Room$/ }).last().click();
+  await host2.page.locator('button', { hasText: /^Games$/ }).first().waitFor({ timeout: 45000 });
+  await host2.page.waitForTimeout(1500);
+  await openGames(host2.page);
+  const captionsBtn2 = host2.page.locator('button[title*="Captions & games are OFF"]').first();
+  if (await captionsBtn2.count()) {
+    await captionsBtn2.click();
+    await host2.page.waitForTimeout(2000);
+  }
+  await feedCaptions(host2.page, 12);
+  await host2.page.waitForTimeout(1500);
+  await host2.page.locator('button', { hasText: /Who Said That\?/ }).first().click();
+  const wst = await waitForRoundOn(host2, 'who_said_that');
+  ok('Who Said That? round opens with captions', wst.ok, wst.frame?.slice(0, 150) ?? 'no round frame in 12s');
+  await host2.ctx.close();
 
   console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
   await host.ctx.close();

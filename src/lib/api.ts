@@ -79,6 +79,11 @@ export function getServerUrl(): string {
 }
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
+  // Only advertise a JSON content-type when there's actually a body.
+  // Fastify 5 rejects an empty body with `Content-Type: application/json`
+  // as FST_ERR_CTP_EMPTY_JSON_BODY -> HTTP 400 before the route handler
+  // runs. Body-less POSTs (e.g. endRoom) must send NO content-type.
+  const hasBody = opts?.body != null;
   const res = await fetch(`${SERVER_URL}${path}`, {
     ...opts,
     // Merge caller headers UNDER the defaults so Content-Type is never
@@ -87,7 +92,10 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
     // object and dropped Content-Type — the server then saw req.body as a
     // raw JSON string instead of a parsed object, and Boolean(body.enabled)
     // silently became false. This broke turning transcription back ON.
-    headers: { 'Content-Type': 'application/json', ...(opts?.headers ?? {}) },
+    headers: {
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(opts?.headers ?? {}),
+    },
   });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;

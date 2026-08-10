@@ -71,7 +71,11 @@ export class WebSocketClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      // Give up: surface an error instead of silently buffering forever.
+      this.emit('_reconnect_failed', {});
+      return;
+    }
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 8000);
     this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
@@ -83,8 +87,19 @@ export class WebSocketClient {
     const msg = JSON.stringify({ type, payload });
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(msg);
+    } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      // Connection is permanently down (reconnects exhausted). Do NOT
+      // buffer control messages forever — surfacing the failure is better
+      // than a silently dead room:end that can never flush.
+      if (type === 'room:end') {
+        this.emit('_send_failed', { type });
+      } else {
+        // Non-control traffic can still be dropped silently (recovers on
+        // a future reconnect, which hasn't been ruled out).
+        console.warn('[ws] dropping message (reconnect exhausted):', type);
+      }
     } else {
-      // Queue for later
+      // Queue for later (a reconnect is still possible)
       this.pendingQueue.push(msg);
     }
   }

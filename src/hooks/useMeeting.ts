@@ -249,6 +249,17 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     );
 
     unsubs.push(
+      ws.on('_reconnect_failed', () => {
+        // WebSocket reconnects exhausted: room:end can no longer be delivered
+        // over WS. The HTTP fallback still works (endRoom), so tell the host
+        // to hit End again rather than stay stuck on a dead socket.
+        setLivekitError(
+          'Connection lost. If you are the host, click “End meeting” again to end via the secure fallback.'
+        );
+      })
+    );
+
+    unsubs.push(
       ws.on('recording:started', () => {
         setRecording(true);
         setRecordingResult(null);
