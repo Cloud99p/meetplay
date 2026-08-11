@@ -2,7 +2,6 @@ import {
   EgressClient,
   EncodedFileType,
   EncodedFileOutput,
-  EncodedOutputs,
   EncodingOptionsPreset,
 } from 'livekit-server-sdk';
 import { loadConfig } from '../config.js';
@@ -53,22 +52,28 @@ export async function startRecording(
     return { ok: false, error: 'LiveKit is not configured — recording is unavailable.' };
   }
   try {
-    // Wrap the file output in EncodedOutputs. Passed bare, this SDK (v2.17)
-    // serializes EncodedFileOutput into BOTH the deprecated oneof `output`
-    // AND the modern `file_outputs` array simultaneously, and LiveKit Cloud
-    // rejects that with "missing or invalid field: output". Wrapping in
-    // EncodedOutputs makes the SDK send only `file_outputs` (the managed
-    // storage path Cloud expects), which fixes the error.
-    const output: EncodedOutputs = {
-      file: new EncodedFileOutput({
-        fileType: EncodedFileType.MP4,
-        // The object key the recording is stored under in LiveKit Cloud's
-        // managed storage.
-        filepath: `meetplay/recordings/${roomName}-${Date.now()}.mp4`,
-      }),
-    };
+    // Pass the EncodedFileOutput DIRECTLY (not wrapped in EncodedOutputs) and
+    // the encoding preset via RoomCompositeOptions.encodingOptions.
+    //
+    // v2.17 SDK gotchas (both previously broken here):
+    //  1. Wrapping the file in `EncodedOutputs` ({ file }) makes the SDK send
+    //     ONLY the modern `file_outputs` array and DROP the legacy `output`
+    //     oneof. LiveKit Cloud requires the legacy oneof and rejects the
+    //     request with "missing or invalid field: output". Passing the
+    //     EncodedFileOutput bare makes the SDK send the legacy `output` oneof
+    //     ({ case:'file', value }), which Cloud accepts.
+    //  2. Passing the preset the wrong way made the SDK emit an invalid
+    //     `advanced` options object. Passing it via RoomCompositeOptions.
+    //     encodingOptions makes the SDK send `options: { case:'preset',
+    //     value: 2 }`.
+    const file = new EncodedFileOutput({
+      fileType: EncodedFileType.MP4,
+      // The object key the recording is stored under in LiveKit Cloud's
+      // managed storage.
+      filepath: `meetplay/recordings/${roomName}-${Date.now()}.mp4`,
+    });
     // Record at 1080p/30 (H.264, 4.5 Mbps) instead of the egress default 720p.
-    const info = await client.startRoomCompositeEgress(roomName, output, {
+    const info = await client.startRoomCompositeEgress(roomName, file, {
       encodingOptions: EncodingOptionsPreset.H264_1080P_30,
     });
     recordings.set(roomName, { egressId: info.egressId, startedAt: Date.now() });
