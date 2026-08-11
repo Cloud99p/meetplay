@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { LeaderboardEntry, RoomStateSnapshot } from '../types/games';
 import { useWebSocket } from './useWebSocket';
 
@@ -26,11 +26,25 @@ export function useGames(screenShareActive = false): UseGamesResult {
   const [lastEvent, setLastEvent] = useState<{ type: string; at: number } | null>(null);
   const quiet = screenShareActive;
 
+  // After a round is scored we keep the trophy screen visible for a short
+  // beat so players see the result, then clear activeRound so the "Start a
+  // game" menu comes back and they can play another round. Without this the
+  // client held the round in 'scored' state forever, hiding the menu and
+  // making every game a one-round-and-done dead end.
+  const SCORED_CLEAR_MS = 4000;
+  const scoredClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     const unsubs: Array<() => void> = [];
 
     unsubs.push(
       ws.on('game:round:open', (payload: { roundId: string; gameType: string; question: unknown; timeLimit: number }) => {
+        // A new round is starting — cancel any pending scored-clear timer so it
+        // can't wipe out the fresh round.
+        if (scoredClearTimerRef.current) {
+          clearTimeout(scoredClearTimerRef.current);
+          scoredClearTimerRef.current = null;
+        }
         setActiveRound({
           roundId: payload.roundId,
           gameType: payload.gameType,
@@ -55,10 +69,20 @@ export function useGames(screenShareActive = false): UseGamesResult {
         setLeaderboard(payload.leaderboard);
         setActiveRound((prev) => (prev?.roundId === payload.roundId ? { ...prev, state: 'scored' } : prev));
         setLastEvent({ type: 'scored', at: Date.now() });
+
+        // Show the trophy, then automatically drop back to the game menu so
+        // another round can be started.
+        if (scoredClearTimerRef.current) clearTimeout(scoredClearTimerRef.current);
+        scoredClearTimerRef.current = setTimeout(() => {
+          setActiveRound((prev) => (prev?.state === 'scored' ? null : prev));
+        }, SCORED_CLEAR_MS);
       })
     );
 
-    return () => unsubs.forEach((u) => u());
+    return () => {
+      if (scoredClearTimerRef.current) clearTimeout(scoredClearTimerRef.current);
+      unsubs.forEach((u) => u());
+    };
   }, [ws]);
 
   const submit = (answer: unknown) => {

@@ -118,7 +118,7 @@ export default function GamesPanel({
               <BingoCard bingo={bingo} participantId={participantId} quiet={quiet} />
             )}
             {/* Active quick round (Layer B), if any */}
-            <ActiveRoundView activeRound={activeRound} onSubmit={onSubmit} />
+            <ActiveRoundView activeRound={activeRound} onSubmit={onSubmit} onStartGame={onStartGame} />
             {/* Player-chosen game menu — shown whenever no round is running */}
             {!activeRound && <GameMenu onStartGame={onStartGame} transcriptionEnabled={transcriptionEnabled} />}
             {gameStartError && (
@@ -219,9 +219,11 @@ function GameMenu({
 function ActiveRoundView({
   activeRound,
   onSubmit,
+  onStartGame,
 }: {
   activeRound: GameRound | null;
   onSubmit: (answer: unknown) => void;
+  onStartGame: (gameType: StartableGameType) => void;
 }) {
   if (!activeRound) return null;
 
@@ -238,6 +240,18 @@ function ActiveRoundView({
           {isGameType(gameType) ? getGameTypeLabel(gameType) : gameType}
         </h4>
         <p className="text-xs text-muted">Round complete — check the leaderboard!</p>
+        <button
+          onClick={() => onStartGame(gameType as StartableGameType)}
+          className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors cursor-pointer active:scale-[0.98]"
+        >
+          Play another round
+        </button>
+        <button
+          onClick={() => onStartGame('bingo')}
+          className="px-4 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-foreground hover:border-primary/50 transition-colors cursor-pointer"
+        >
+          Switch to Buzzword Bingo
+        </button>
       </div>
     );
   }

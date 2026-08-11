@@ -109,6 +109,10 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const lkParamsRef = useRef<{ roomName: string; identity: string; participantName: string; token: string; url: string } | null>(null);
   const reconnectInFlightRef = useRef(false);
   const intentionallyLeftRef = useRef(false);
+  // After a scored round we keep the trophy screen for a short beat, then
+  // clear activeRound so the game menu returns and another round can start.
+  const SCORED_CLEAR_MS = 4000;
+  const scoredClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Subscribe to WS events
   useEffect(() => {
@@ -291,6 +295,12 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     unsubs.push(
       ws.on('game:round:open', (payload: { roundId: string; gameType: string; question: unknown; timeLimit: number }) => {
         setGameStartError(null);
+        // A new round is starting — cancel any pending scored-clear timer so it
+        // can't wipe out the fresh round.
+        if (scoredClearTimerRef.current) {
+          clearTimeout(scoredClearTimerRef.current);
+          scoredClearTimerRef.current = null;
+        }
         setActiveRound({
           roundId: payload.roundId,
           gameType: payload.gameType,
@@ -312,6 +322,13 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('game:round:scored', (payload: { roundId: string; results: any[]; leaderboard: LeaderboardEntry[] }) => {
         setLeaderboard(payload.leaderboard);
         setActiveRound((prev) => prev?.roundId === payload.roundId ? { ...prev, state: 'scored' } : prev);
+        // Show the trophy briefly, then clear activeRound so the "Start a
+        // game" menu returns and another round can be played. Without this the
+        // round sat in 'scored' forever, hiding the menu (one-round-and-done).
+        if (scoredClearTimerRef.current) clearTimeout(scoredClearTimerRef.current);
+        scoredClearTimerRef.current = setTimeout(() => {
+          setActiveRound((prev) => (prev?.state === 'scored' ? null : prev));
+        }, SCORED_CLEAR_MS);
       })
     );
 
@@ -544,7 +561,10 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       })
     );
 
-    return () => unsubs.forEach((u) => u());
+    return () => {
+      if (scoredClearTimerRef.current) clearTimeout(scoredClearTimerRef.current);
+      unsubs.forEach((u) => u());
+    };
   }, [ws, participantId, liveKitRoom]);
 
   // ---------------------------------------------------------------------
