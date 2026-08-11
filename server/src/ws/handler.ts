@@ -30,7 +30,7 @@ import {
   setParticipantMediaMuted,
   removeParticipantFromLiveKit,
 } from '../livekit/moderation.js';
-import { isRecording, startRecording, stopRecording } from '../livekit/recording.js';
+import { isRecording } from '../livekit/recording.js';
 import { omniClient } from '../intelligence/omniClient.js';
 
 // Track host disconnect timers: roomId -> { hostId, timer }
@@ -488,40 +488,19 @@ async function handleMessage(
     case 'recording:start': {
       const isHost = await checkIsHost(roomId, senderId);
       if (!isHost) return;
-      const res = await startRecording(roomId);
-      if (res.ok) {
-        channelManager.broadcast(roomId, {
-          type: 'recording:started',
-          payload: { recording: true, startedAt: res.startedAt },
-        });
-      } else {
-        channelManager.sendTo(roomId, senderId, {
-          type: 'recording:error',
-          payload: { message: res.error },
-        });
-      }
+      // Recording is DISABLED: LiveKit egress requires a cloud storage
+      // destination (S3/GCP/Azure) which MeetPlay doesn't have, so egress
+      // always fails with "request has missing or invalid field: output".
+      // Short-circuit here instead of attempting the broken egress call.
+      channelManager.sendTo(roomId, senderId, {
+        type: 'recording:error',
+        payload: { message: 'Recording is unavailable (no storage configured).' },
+      });
       break;
     }
 
     case 'recording:stop': {
-      const isHost = await checkIsHost(roomId, senderId);
-      if (!isHost) return;
-      const res = await stopRecording(roomId);
-      if (res.ok) {
-        channelManager.broadcast(roomId, {
-          type: 'recording:stopped',
-          payload: {
-            recording: false,
-            downloadUrl: res.downloadUrl,
-            filename: res.filename,
-          },
-        });
-      } else {
-        channelManager.sendTo(roomId, senderId, {
-          type: 'recording:error',
-          payload: { message: res.error },
-        });
-      }
+      // No-op: recording is disabled (see recording:start above).
       break;
     }
 

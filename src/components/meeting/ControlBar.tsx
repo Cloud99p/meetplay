@@ -2,7 +2,7 @@ import { useState, useContext } from 'react';
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiMonitor, FiMessageSquare, FiUsers,
-  FiLogOut, FiSmile, FiCircle,
+  FiLogOut, FiSmile,
 } from 'react-icons/fi';
 import { LuHand } from 'react-icons/lu';
 import { RoomContext } from '@livekit/components-react';
@@ -38,9 +38,9 @@ interface Props {
 export default function ControlBar({
   isHost,
   transcriptionEnabled,
-  recording,
+  recording: _recording,
   micMuted,
-  onToggleRecording,
+  onToggleRecording: _onToggleRecording,
   onToggleMic,
   onToggleCam,
   onToggleScreenShare,
@@ -124,18 +124,11 @@ export default function ControlBar({
         )}
       </div>
 
-      {/* Host: record the call */}
-      {isHost && (
-        <button
-          onClick={onToggleRecording}
-          className={`${btnClass} ${recording ? 'bg-destructive/25 text-destructive' : ''}`}
-          title={recording ? 'Stop recording' : 'Record call'}
-        >
-          <FiCircle
-            className={`w-4 h-4 ${recording ? 'animate-pulse fill-destructive' : 'fill-current'}`}
-          />
-        </button>
-      )}
+      {/* Host: record the call — DISABLED (no cloud storage for egress; see
+          server/src/livekit/recording.ts). LiveKit egress requires an
+          S3/GCP/Azure bucket which MeetPlay doesn't have, so recording is
+          unavailable. Button intentionally not rendered. Re-enable once a
+          storage destination is wired up. */}
 
       <div className="w-px h-6 bg-border mx-1" />
 
