@@ -116,7 +116,23 @@ export async function sttRoutes(app: FastifyInstance) {
 
     // Upstream -> client (Results JSON, TurnInfo events, Metadata, etc.)
     upstream.on('message', (data) => {
-      if (socket.readyState === socket.OPEN) socket.send(data.toString());
+      // Protocol-level complaints about OUR own client messages are our bug, not
+      // the user's: relaying them makes a benign internal mistake look like a
+      // failed recording session in the browser console. Log them here instead,
+      // and still forward everything else verbatim.
+      let relay = true;
+      try {
+        const parsed = JSON.parse(data.toString());
+        if (parsed.type === 'Error' && parsed.code === 'UNPARSABLE_CLIENT_MESSAGE') {
+          console.warn(
+            `[stt:${connId}] upstream rejected a client message (${parsed.description ?? 'no description'}) — not relaying`,
+          );
+          relay = false;
+        }
+      } catch {
+        /* not JSON (binary audio frames are upstream->us only) */
+      }
+      if (relay && socket.readyState === socket.OPEN) socket.send(data.toString());
       // ---- diagnostic logging: does Deepgram actually hear/transcribe? ----
       try {
         const msg = JSON.parse(data.toString());
@@ -192,20 +208,29 @@ export async function sttRoutes(app: FastifyInstance) {
     // ── Liveness heartbeats (fixes "captions stop mid-call and never resume") ──
     // 1) KeepAlive upstream every 30s: Deepgram closes Live sessions that sit
     //    idle (a silence gap in a meeting is enough), which would otherwise
-    //    kill captions until someone notices. KeepAlive is the documented way
-    //    to keep the session open.
+    //    kill captions until someone notices.
+    //
+    //    BUT: KeepAlive is a v1 protocol message. On the Flux endpoint (v2) the
+    //    only client messages are CloseStream, ForceEndTurn and Configure, so
+    //    every KeepAlive we sent came back as
+    //      {"type":"Error","code":"UNPARSABLE_CLIENT_MESSAGE", ...}
+    //    which the proxy relayed to the browser as a scary "server error", and
+    //    which risks the session being closed as malformed. Flux meters turns
+    //    and audio keeps flowing, so the keepalive isn't needed there.
     // 2) stt:keepalive to the client every 10s: the browser adapter's watchdog
     //    treats "no server message for a while" as a dead socket and forces a
     //    reconnect. This frame guarantees a healthy session never false-positives.
-    const upstreamKeepalive = setInterval(() => {
-      if (upstream.readyState === WebSocket.OPEN) {
-        try {
-          upstream.send(JSON.stringify({ type: 'KeepAlive' }));
-        } catch {
-          /* ignore */
-        }
-      }
-    }, 30000);
+    const upstreamKeepalive = isFlux
+      ? null
+      : setInterval(() => {
+          if (upstream.readyState === WebSocket.OPEN) {
+            try {
+              upstream.send(JSON.stringify({ type: 'KeepAlive' }));
+            } catch {
+              /* ignore */
+            }
+          }
+        }, 30000);
 
     const clientKeepalive = setInterval(() => {
       if (socket.readyState === socket.OPEN) {
@@ -292,7 +317,7 @@ export async function sttRoutes(app: FastifyInstance) {
 
     socket.on('close', () => {
       console.log(`[stt:${connId}] client closed (audioBytes=${audioBytes}, results=${resultsCount})`);
-      clearInterval(upstreamKeepalive);
+      if (upstreamKeepalive) clearInterval(upstreamKeepalive);
       clearInterval(clientKeepalive);
       clearInterval(upstreamPing);
       try {

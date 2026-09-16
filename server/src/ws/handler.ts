@@ -166,6 +166,13 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
     socket.close(4000, 'Missing roomId, participantId or token');
     return;
   }
+  // A non-UUID id can only be a buggy client (the token below must match it),
+  // and the Postgres path answers it with a 22P02 error instead of a clean
+  // close. Reject it before any query runs.
+  if (!isUuid(participantId) || !isUuid(roomId)) {
+    socket.close(4000, 'Malformed roomId or participantId');
+    return;
+  }
 
   const payload = verifyRoomToken(token);
   if (!payload || payload.roomId !== roomId || payload.participantId !== participantId) {
@@ -190,6 +197,41 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
     cancelHostPromotion(roomId, participantId);
   }
 
+  // Inbound listener FIRST. The socket is open as soon as we await anything
+  // below, so a client that sends immediately after 'open' (a caption that
+  // starts instantly, a chat message, a game action) used to hit a socket with
+  // no 'message' listener attached — silently dropped, no error anywhere. Queue
+  // until initialisation finishes, then replay in order.
+  const pendingMessages: Array<{ type: string; payload: any }> = [];
+  let ready = false;
+  const dispatch = async (msg: { type: string; payload: any }) => {
+    try {
+      await handleMessage(roomId, participantId, participant, msg.type, msg.payload);
+    } catch (e) {
+      console.error(`[ws:${roomId}:${participantId}] handle error:`, e);
+    }
+  };
+
+  socket.on('message', (raw) => {
+    const msg = decode(raw.toString());
+    if (!msg) return;
+    if (!ready) {
+      pendingMessages.push(msg);
+      return;
+    }
+    void dispatch(msg);
+  });
+
+  socket.on('close', () => {
+    channelManager.leave(roomId, participantId);
+    unregisterConnection(roomId, participantId);
+
+    // If host left, schedule promotion
+    if (participant.is_host) {
+      scheduleHostPromotion(roomId, participantId);
+    }
+  });
+
   // Join channel
   channelManager.join(roomId, participantId, participant.name, socket);
   registerConnection(roomId, participantId);
@@ -202,27 +244,11 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
   // Send current state snapshot (for reconnect resync / late joiners)
   await sendRoomState(roomId, socket, participantId);
 
-  socket.on('message', async (raw) => {
-    const data = raw.toString();
-    const msg = decode(data);
-    if (!msg) return;
-
-    try {
-      await handleMessage(roomId, participantId, participant, msg.type, msg.payload);
-    } catch (e) {
-      console.error(`[ws:${roomId}:${participantId}] handle error:`, e);
-    }
-  });
-
-  socket.on('close', () => {
-    channelManager.leave(roomId, participantId);
-    unregisterConnection(roomId, participantId);
-
-    // If host left, schedule promotion
-    if (participant.is_host) {
-      scheduleHostPromotion(roomId, participantId);
-    }
-  });
+  // Initialisation done — drain anything the client sent while we were setting up.
+  ready = true;
+  for (const msg of pendingMessages.splice(0)) {
+    await dispatch(msg);
+  }
 }
 
 function cancelHostPromotion(roomId: string, participantId: string) {
@@ -319,7 +345,12 @@ async function handleMessage(
       let speakerId = rawSpeakerId;
       let speakerName: string | null = sender.name;
       if (rawSpeakerId !== senderId) {
-        const speaker = await getParticipantById(rawSpeakerId);
+        // Only synthetic ids reach this branch in practice ('speaker-0',
+        // 'unknown', 'local'), and Postgres refuses a non-UUID with 22P02 —
+        // which used to abort the whole caption handler (no broadcast, no
+        // transcript row, no game feed) on EVERY utterance. Guard the lookup
+        // instead of relying on the DB to be forgiving.
+        const speaker = isUuid(rawSpeakerId) ? await getParticipantById(rawSpeakerId) : null;
         if (speaker) {
           speakerName = speaker.name ?? null;
         } else {
@@ -458,7 +489,7 @@ async function handleMessage(
       if (!isHost) return;
       const targetId = String(payload.targetId ?? '');
       if (!targetId || targetId === senderId) return;
-      const target = await getParticipantById(targetId);
+      const target = isUuid(targetId) ? await getParticipantById(targetId) : null;
       await removeParticipant(targetId);
       if (target) {
         // Hard-kick from media too, not just the signal layer.
@@ -555,7 +586,22 @@ async function handleMessage(
   }
 }
 
+/**
+ * UUID shape check for ids that arrive from clients or message payloads.
+ *
+ * The in-memory store accepts any string key, so a synthetic speaker id like
+ * 'local' (WebSpeech) or 'speaker-0' (Deepgram diarization) silently works in
+ * dev — and then Postgres rejects it with `invalid input syntax for type uuid`
+ * the moment the app runs on the real database. Anything client-supplied that
+ * becomes a query parameter goes through here first.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value);
+}
+
 async function checkIsHost(roomId: string, participantId: string): Promise<boolean> {
+  if (!isUuid(participantId)) return false;
   const p = await getParticipantById(participantId);
   if (!p || p.room_id !== roomId) return false;
   if (p.is_host) return true;
