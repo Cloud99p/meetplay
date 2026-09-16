@@ -149,8 +149,14 @@ export function loadConfig(): ServerConfig {
  */
 function readS3Config(): S3RecordingConfig | null {
   const bucket = env.S3_BUCKET?.trim() ?? '';
-  const accessKey = (env.S3_ACCESS_KEY ?? env.S3_ACCESS_KEY_ID)?.trim() ?? '';
-  const secret = (env.S3_SECRET ?? env.S3_SECRET_ACCESS_KEY)?.trim() ?? '';
+  // Accepted names, in order. The last two are Cloudflare's own field labels
+  // ("Access Key ID" / "Secret Access Key") — people paste those straight into a
+  // Railway/Vercel env form, and a silently missing credential just disables
+  // recording with no hint about which variable is wrong.
+  const accessKey =
+    (env.S3_ACCESS_KEY ?? env.S3_ACCESS_KEY_ID ?? env.Access_Key_ID)?.trim() ?? '';
+  const secret =
+    (env.S3_SECRET ?? env.S3_SECRET_ACCESS_KEY ?? env.Secret_Access_Key)?.trim() ?? '';
   if (!bucket || !accessKey || !secret) return null;
   return {
     accessKey,

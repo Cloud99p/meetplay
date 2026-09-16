@@ -120,6 +120,32 @@ check(
 );
 check('recap: undefined stays undefined (never recorded)', (await withSignedRecordingUrls(undefined)) === undefined);
 
+// ─── 7. Cloudflare's own field labels are accepted as credential names ────
+// Pasting "Access Key ID" / "Secret Access Key" verbatim into a hosting env form
+// is an easy mistake, and it silently disables recording with no clue as to why.
+const { loadConfig } = await import('../server/src/config.js');
+delete process.env.S3_ACCESS_KEY;
+delete process.env.S3_SECRET;
+process.env.Access_Key_ID = 'cf-label-key';
+process.env.Secret_Access_Key = 'cf-label-secret';
+const aliasCfg = loadConfig().recordingS3;
+check('alias: Access_Key_ID / Secret_Access_Key configure storage', aliasCfg !== null);
+const aliasUrl = await presignRecordingUrl(KEY);
+check(
+  'alias: the aliased access key signs URLs',
+  (aliasUrl ?? '').includes('cf-label-key'),
+);
+// Restore the canonical names for anything that runs after this.
+process.env.S3_ACCESS_KEY = 'test-access-key';
+process.env.S3_SECRET = 'test-secret-key';
+delete process.env.Access_Key_ID;
+delete process.env.Secret_Access_Key;
+
+// ─── 8. Missing the bucket is the one thing that cannot be aliased ────────
+delete process.env.S3_BUCKET;
+check('no bucket → storage not configured (recording disabled)', loadConfig().recordingS3 === null);
+process.env.S3_BUCKET = BUCKET;
+
 console.log(failures === 0 ? '\nAll presign checks passed.' : `\n${failures} check(s) failed.`);
 assert.ok(failures === 0, 'presign verification failed');
 process.exit(failures === 0 ? 0 : 1);

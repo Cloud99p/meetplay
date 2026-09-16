@@ -1,0 +1,13 @@
+fix(config): accept Cloudflare's env labels for S3 credentials
+
+The credentials landed on Railway as Access_Key_ID / Secret_Access_Key (straight
+from Cloudflare's UI labels), which the config did not read — so storage stayed
+"unconfigured" and the record button stayed disabled with no hint as to which
+variable was wrong. Both spellings now work, alongside S3_ACCESS_KEY(_ID) and
+S3_SECRET(_ACCESS_KEY).
+
+S3_BUCKET has no alias and never will: it is the one value that cannot be
+inferred, and a missing bucket is the difference between working recording and a
+silently disabled button.
+
+verify:presign gains checks for the aliased names and for the missing-bucket case.
