@@ -502,6 +502,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         transcriptionEnabled={state.transcriptionEnabled}
         recording={state.recording}
         recordingAvailable={state.recordingAvailable}
+            recordingReason={state.recordingReason}
         micMuted={micMuted}
         onToggleRecording={() =>
           state.recording ? actions.stopRecording() : actions.startRecording()

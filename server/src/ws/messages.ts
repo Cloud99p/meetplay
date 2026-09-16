@@ -170,6 +170,12 @@ export interface RoomStateSnapshot {
    * server return a real error message on click.
    */
   recordingAvailable?: boolean;
+  /**
+   * Why recording is unavailable, verbatim from the server (null when it is
+   * available). The host UI shows this in the button tooltip so the reason is
+   * visible without reading server logs.
+   */
+  recordingReason?: string | null;
   activeRound: {
     roundId: string;
     gameType: string;

@@ -21,6 +21,8 @@ interface Props {
    * tooltip, instead of silently failing on click.
    */
   recordingAvailable?: boolean;
+  /** Why recording is unavailable — shown to the host instead of a generic message. */
+  recordingReason?: string | null;
   /** Authoritative mic state from MeetingRoom — works even when LiveKit is
    *  disconnected (text mode) or the mic track hasn't been published yet.
    *  Previously the icon derived from micPub?.isMuted, which is `undefined`
@@ -46,6 +48,7 @@ export default function ControlBar({
   transcriptionEnabled,
   recording,
   recordingAvailable = true,
+  recordingReason = null,
   micMuted,
   onToggleRecording,
   onToggleMic,
@@ -151,7 +154,8 @@ export default function ControlBar({
               ? 'Stop recording'
               : recordingAvailable
                 ? 'Record call'
-                : 'Recording unavailable — server has no storage destination configured'
+                : recordingReason ??
+                  'Recording unavailable — server has no storage destination configured'
           }
         >
           {/* Filled dot while live, ring otherwise */}

@@ -44,6 +44,8 @@ export interface MeetingState {
   recording: boolean;
   /** Server can start a recording (LiveKit + an S3 destination configured). */
   recordingAvailable: boolean;
+  /** Why recording is unavailable, verbatim from the server (null when it is available). */
+  recordingReason: string | null;
   recordingResult: { downloadUrl: string | null; filename: string | null } | null;
   recordingError: string | null;
 }
@@ -104,6 +106,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   // Optimistic default: older servers omit `recordingAvailable`, so assume
   // available and let the server's recording:error carry the real reason.
   const [recordingAvailable, setRecordingAvailable] = useState(true);
+  const [recordingReason, setRecordingReason] = useState<string | null>(null);
   const [recordingResult, setRecordingResult] = useState<MeetingState['recordingResult']>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
 
@@ -137,6 +140,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         setRecording(Boolean(payload.recording));
       if (payload.recordingAvailable !== undefined) {
         setRecordingAvailable(payload.recordingAvailable);
+      }
+      if (payload.recordingReason !== undefined) {
+        setRecordingReason(payload.recordingReason ?? null);
       }
         if (payload.roomState) {
           setRoom((prev) => prev ? { ...prev, state: payload.roomState } : prev);
@@ -1076,6 +1082,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     gameQuiet,
     recording,
     recordingAvailable,
+    recordingReason,
     recordingResult,
     recordingError,
   };

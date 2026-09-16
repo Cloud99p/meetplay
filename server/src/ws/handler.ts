@@ -79,6 +79,7 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
     const userMarkets = engine.getUserMarketsSnapshot(participantId ?? '');
     const bingo = participantId ? engine.getBingoSnapshot(participantId) : null;
     const stats = engine.getStatsSnapshot();
+    const recording = recordingAvailability();
 
     const msg: ServerMessage = {
       type: 'room:state',
@@ -95,7 +96,8 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
         recording: isRecording(roomId),
         // Lets the host UI disable the record button with a reason instead of
         // letting the click fail with a server error.
-        recordingAvailable: recordingAvailability().available,
+        recordingAvailable: recording.available,
+        recordingReason: recording.available ? null : recording.reason ?? null,
         activeRound,
         leaderboard,
         market,

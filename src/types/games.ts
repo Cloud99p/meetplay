@@ -47,6 +47,8 @@ export interface RoomStateSnapshot {
    * then assumes available and surfaces the server's recording:error instead.
    */
   recordingAvailable?: boolean;
+  /** Why recording is unavailable, verbatim from the server (null when available). */
+  recordingReason?: string | null;
   activeRound: {
     roundId: string;
     gameType: string;
