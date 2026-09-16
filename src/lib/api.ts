@@ -75,14 +75,20 @@ export interface RecapData {
   /** Call recordings (LiveKit Egress → S3). Empty when never recorded. */
   recordings?: Array<{
     id: string;
-    /** Playable link when the bucket is public (R2 pub-*.r2.dev / CDN). */
+    /**
+     * Playable link. On a private bucket the server mints a short-lived
+     * signed URL here (see `urlExpiresIn`), so it works without public access
+     * and stops working once the signature lapses.
+     */
     downloadUrl: string | null;
-    /** Object key in the bucket — shown when no public URL is available. */
+    /** Object key in the bucket — shown when no playable URL is available. */
     filepath: string | null;
     audioOnly: boolean;
     durationSec: number;
     startedAt: string | null;
     createdAt: string;
+    /** Seconds until `downloadUrl` expires (null when it's a public URL). */
+    urlExpiresIn?: number | null;
   }>;
 }
 

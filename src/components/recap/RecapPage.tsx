@@ -298,11 +298,17 @@ export default function RecapPage({ roomId, onBack }: Props) {
                       {rec.filepath && (
                         <span className="font-mono text-[11px] break-all">{rec.filepath}</span>
                       )}
-                      . This bucket has no public URL configured, so it can't be played
-                      inline — set <span className="font-mono">S3_PUBLIC_BASE_URL</span> (or a
-                      bucket policy) and it will appear here.
+                      . No playable link yet — recording storage (S3_*) isn't configured
+                      on this server.
                     </p>
                   )}
+                  {/* Private bucket: the link above is signed and short-lived. */}
+                  {rec.downloadUrl && rec.urlExpiresIn ? (
+                    <p className="px-4 pb-3 text-[11px] text-muted">
+                      Playback link is signed and expires in{' '}
+                      {Math.round(rec.urlExpiresIn / 60)} min — reload this page for a fresh one.
+                    </p>
+                  ) : null}
                 </div>
               ))}
             </div>

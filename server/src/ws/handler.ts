@@ -31,6 +31,7 @@ import {
   removeParticipantFromLiveKit,
 } from '../livekit/moderation.js';
 import { isRecording, recordingAvailability, startRecording, stopRecordingAndSave } from '../livekit/recording.js';
+import { presignRecordingUrl } from '../storage/presign.js';
 import { omniClient } from '../intelligence/omniClient.js';
 
 // Track host disconnect timers: roomId -> { hostId, timer }
@@ -492,7 +493,10 @@ async function handleMessage(
           type: 'recording:stopped',
           payload: {
             recording: false,
-            downloadUrl: recapRecording.downloadUrl,
+            // Signed short-lived link (private bucket) — falls back to the
+            // stored/public URL when signing isn't configured.
+            downloadUrl:
+              (await presignRecordingUrl(recapRecording.filename)) ?? recapRecording.downloadUrl,
             filename: recapRecording.filename,
           },
         });
@@ -537,7 +541,7 @@ async function handleMessage(
         type: 'recording:stopped',
         payload: {
           recording: false,
-          downloadUrl: result.downloadUrl,
+          downloadUrl: (await presignRecordingUrl(result.filename)) ?? result.downloadUrl,
           filename: result.filename,
         },
       });

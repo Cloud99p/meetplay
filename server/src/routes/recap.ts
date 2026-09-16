@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { getRecap } from '../db/queries.js';
 import { verifyRoomToken, generateRecapShareToken, verifyRecapShareToken } from '../utils/jwt.js';
 import { omniClient } from '../intelligence/omniClient.js';
+import { withSignedRecordingUrls } from '../storage/presign.js';
 
 export async function recapRoutes(app: FastifyInstance) {
   // Full transcript + leaderboard + key quotes after a meeting ends. This is
@@ -38,6 +39,9 @@ export async function recapRoutes(app: FastifyInstance) {
     if (!recap) return reply.code(404).send({ error: 'Room not found' });
     return {
       ...recap,
+      // Signed, short-lived playback URLs — the bucket stays private and the
+      // database only ever holds the object key (see storage/presign.ts).
+      recordings: await withSignedRecordingUrls(recap.recordings),
       // Graph-augmented section: recorded utterances from the Omnilearn
       // knowledge graph for this meeting. Graceful — empty when Omnilearn is
       // unavailable so the recap page never breaks.
