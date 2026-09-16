@@ -151,6 +151,28 @@ was a real gap: docker-compose mounts it, managed databases never do.
 | 2026-09-16 | **`ON DELETE CASCADE` on `chat_messages`, `transcript_events`, `game_submissions` → `participants`** | These FKs had no delete rule, so deleting a room (the 24h privacy purge) aborted with an FK violation and **never purged anything**. Host-remove of a participant failed silently too. |
 | 2026-09-16 | **RLS + revokes on all app tables** | app tables were readable via the public Data API (see §4) |
 
+### Manual apply — `db/supabase-setup.sql`
+
+`db/supabase-setup.sql` is the whole schema as one paste-and-run script
+(Supabase dashboard → SQL Editor → Run). It is **idempotent**: safe on a new
+project and a no-op on the existing one, so it doubles as the rebuild path and
+as documentation of what the app expects. Order inside the file matters
+(tables → indexes → security) — run it whole, don't cherry-pick.
+
+Verify a database matches another one (e.g. after a paste, or prod vs staging):
+
+```bash
+node --env-file=.env scripts/schema-fingerprint.mjs > a.txt   # or npm run db:fingerprint
+# ...same with the other DATABASE_URL...
+diff a.txt b.txt
+```
+
+The fingerprint covers tables, RLS flags, columns/defaults, constraints incl.
+`ON DELETE` behaviour, indexes and Data-API grants. Verified 2026-09-16: a fresh
+`postgres:17` database with `supabase-setup.sql` applied is **structurally
+identical to the live Supabase project**, and the full 36-check
+`verify-postgres.mjs` suite passes on top of it.
+
 ### Which store is the app using? (dev vs prod)
 
 The server picks its store from env only (`server/src/index.ts`):
