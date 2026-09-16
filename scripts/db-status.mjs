@@ -37,7 +37,9 @@ try {
     select c.relname                              as name,
            c.relrowsecurity                       as rls,
            c.relforcerowsecurity                  as force_rls,
-           coalesce(s.n_live_tup, 0)              as approx_rows
+           coalesce(s.n_live_tup, 0)              as approx_rows,
+           (select count(*) from pg_policies pol
+             where pol.schemaname = 'public' and pol.tablename = c.relname) as policies
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
     left join pg_stat_user_tables s on s.relid = c.oid
@@ -51,7 +53,8 @@ try {
       `select count(*)::int as n from public."${t.name}"`,
     );
     console.log(
-      `  - ${t.name.padEnd(20)} rls=${t.rls ? 'ON ' : 'off'} force=${t.force_rls ? 'ON ' : 'off'} rows=${n}`,
+      `  - ${t.name.padEnd(20)} rls=${t.rls ? 'ON ' : 'off'} force=${t.force_rls ? 'ON ' : 'off'}` +
+        ` policies=${t.policies} rows=${n}`,
     );
   }
 
