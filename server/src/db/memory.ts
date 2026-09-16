@@ -62,6 +62,18 @@ export interface GameSubmissionRow {
   created_at: string;
 }
 
+export interface RoomRecordingRow {
+  id: string;
+  room_id: string;
+  egress_id: string | null;
+  download_url: string | null;
+  filepath: string | null;
+  audio_only: boolean;
+  duration_sec: number;
+  started_at: string | null;
+  created_at: string;
+}
+
 // ─── In-memory store ────────────────────────────────────────
 
 class InMemoryStore {
@@ -71,6 +83,7 @@ class InMemoryStore {
   transcriptEvents = new Map<string, TranscriptEventRow>();
   gameRounds = new Map<string, GameRoundRow>();
   gameSubmissions = new Map<string, GameSubmissionRow>();
+  roomRecordings = new Map<string, RoomRecordingRow>();
 }
 
 const store = new InMemoryStore();
@@ -396,6 +409,47 @@ function findSubmission(roundId: string, participantId: string): string | null {
   return null;
 }
 
+// ─── Room Recordings ──────────────────────────────────────
+
+/**
+ * Persist a finalized LiveKit egress recording so the recap page can play it
+ * back (egress finalizes the upload after the room is deleted).
+ */
+export async function saveRoomRecording(opts: {
+  roomId: string;
+  egressId?: string | null;
+  downloadUrl?: string | null;
+  filepath?: string | null;
+  audioOnly?: boolean;
+  durationSec?: number;
+  startedAt?: number | null;
+}) {
+  const id = uuid();
+  const row: RoomRecordingRow = {
+    id,
+    room_id: opts.roomId,
+    egress_id: opts.egressId ?? null,
+    download_url: opts.downloadUrl ?? null,
+    filepath: opts.filepath ?? null,
+    audio_only: opts.audioOnly ?? false,
+    duration_sec: opts.durationSec ?? 0,
+    started_at: opts.startedAt ? new Date(opts.startedAt).toISOString() : null,
+    created_at: nowISO(),
+  };
+  store.roomRecordings.set(id, row);
+  return row;
+}
+
+/** Recordings for a room, newest first (mirrors the Postgres ordering). */
+export async function getRoomRecordings(roomId: string) {
+  const rows: RoomRecordingRow[] = [];
+  for (const r of store.roomRecordings.values()) {
+    if (r.room_id === roomId) rows.push(r);
+  }
+  rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return rows;
+}
+
 export async function getGameSubmissions(roundId: string) {
   const rows: GameSubmissionRow[] = [];
   for (const s of store.gameSubmissions.values()) {
@@ -413,7 +467,7 @@ export async function getGameSubmissions(roundId: string) {
 // delegates leaderboard + key-quotes scoring to the single shared
 // `withSummary` in recapSummary.ts (both DB backends call the same code).
 
-export type { RecapData } from './recapSummary.js';
+export type { RecapData, RoomRecording } from './recapSummary.js';
 
 export async function getRecap(roomId: string): Promise<RecapData | null> {
   const room = await getRoomById(roomId);
@@ -422,6 +476,7 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
   const participants = await getParticipantsByRoom(roomId);
   const transcript = await getTranscriptEvents(roomId);
   const gameRounds = await getGameRounds(roomId);
+  const recordings = await getRoomRecordings(roomId);
 
   const gameRoundsWithSubs: RecapBase['gameRounds'] = await Promise.all(
     gameRounds.map(async (gr) => {
@@ -468,6 +523,15 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
       createdAt: t.created_at,
     })),
     gameRounds: gameRoundsWithSubs,
+    recordings: recordings.map((r) => ({
+      id: r.id,
+      downloadUrl: r.download_url,
+      filepath: r.filepath,
+      audioOnly: r.audio_only,
+      durationSec: r.duration_sec,
+      startedAt: r.started_at,
+      createdAt: r.created_at,
+    })),
   };
 
   return withSummary(recapBase);

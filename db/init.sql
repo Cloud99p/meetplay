@@ -63,6 +63,24 @@ CREATE TABLE game_submissions (
   UNIQUE(round_id, participant_id)
 );
 
+-- LiveKit Egress recordings (one room can be recorded several times).
+-- Stored so the recap page can offer inline playback: the recording is
+-- usually finalized AFTER the room is deleted, so an in-memory-only result
+-- would be lost by the time the recap loads.
+CREATE TABLE IF NOT EXISTS room_recordings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
+  egress_id TEXT,
+  download_url TEXT,
+  filepath TEXT,
+  audio_only BOOLEAN DEFAULT false,
+  duration_sec INTEGER DEFAULT 0,
+  started_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_recordings_room ON room_recordings(room_id);
+
 CREATE INDEX idx_participants_room ON participants(room_id);
 CREATE INDEX idx_chat_room ON chat_messages(room_id);
 CREATE INDEX idx_transcript_room ON transcript_events(room_id);

@@ -16,6 +16,22 @@ const MIGRATIONS: string[] = [
   // and the host can still toggle off per-room if they want.
   `ALTER TABLE rooms ALTER COLUMN transcription_enabled SET DEFAULT true`,
   `UPDATE rooms SET transcription_enabled = true WHERE transcription_enabled IS NULL OR transcription_enabled = false`,
+
+  // 2026-09-16 — call recordings (LiveKit Egress → S3-compatible bucket).
+  // Persisted so the recap page can play the file back; egress finalizes the
+  // upload after the room is deleted, so the URL has to outlive the call.
+  `CREATE TABLE IF NOT EXISTS room_recordings (
+     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
+     egress_id TEXT,
+     download_url TEXT,
+     filepath TEXT,
+     audio_only BOOLEAN DEFAULT false,
+     duration_sec INTEGER DEFAULT 0,
+     started_at TIMESTAMPTZ,
+     created_at TIMESTAMPTZ DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_room_recordings_room ON room_recordings(room_id)`,
 ];
 
 export async function runMigrations(): Promise<void> {

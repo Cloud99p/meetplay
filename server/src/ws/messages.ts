@@ -163,6 +163,13 @@ export interface RoomStateSnapshot {
   transcriptionEnabled: boolean;
   roomState: 'active' | 'locked' | 'ended';
   recording: boolean;
+  /**
+   * Whether this deployment can start a recording at all (LiveKit + an S3
+   * destination configured). Optional for backwards compatibility with older
+   * snapshots — the client treats `undefined` as available and lets the
+   * server return a real error message on click.
+   */
+  recordingAvailable?: boolean;
   activeRound: {
     roundId: string;
     gameType: string;

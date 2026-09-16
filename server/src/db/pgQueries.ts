@@ -309,12 +309,67 @@ export async function getGameSubmissions(roundId: string): Promise<GameSubmissio
   return rows;
 }
 
+// ─── Room recordings (LiveKit Egress output) ───────────
+
+/**
+ * Persist a finalized recording. Called from both stop paths (host stops,
+ * or the meeting ends while recording) so the recap page can play it back —
+ * egress finishes writing AFTER the room is gone, so the result can't live
+ * only in memory.
+ */
+export async function saveRoomRecording(opts: {
+  roomId: string;
+  egressId?: string | null;
+  downloadUrl?: string | null;
+  filepath?: string | null;
+  audioOnly?: boolean;
+  durationSec?: number;
+  startedAt?: number | null;
+}) {
+  const { rows } = await pool.query(
+    `INSERT INTO room_recordings
+       (room_id, egress_id, download_url, filepath, audio_only, duration_sec, started_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [
+      opts.roomId,
+      opts.egressId ?? null,
+      opts.downloadUrl ?? null,
+      opts.filepath ?? null,
+      opts.audioOnly ?? false,
+      opts.durationSec ?? 0,
+      opts.startedAt ? new Date(opts.startedAt).toISOString() : null,
+    ]
+  );
+  return rows[0];
+}
+
+interface RoomRecordingRow {
+  id: string;
+  download_url: string | null;
+  filepath: string | null;
+  audio_only: boolean;
+  duration_sec: number;
+  started_at: Date | string | null;
+  created_at: Date | string;
+}
+
+/** Recordings for a room, newest first. Audio-only files are skipped by the
+ *  video player but still returned (the recap offers them as audio). */
+export async function getRoomRecordings(roomId: string): Promise<RoomRecordingRow[]> {
+  const { rows } = await pool.query<RoomRecordingRow>(
+    `SELECT * FROM room_recordings WHERE room_id = $1 ORDER BY created_at DESC`,
+    [roomId]
+  );
+  return rows;
+}
+
 // ─── Recap ────────────────────────────────────────────
 // getRecap assembles raw rows into the shared RecapBase shape, then delegates
 // leaderboard + key-quotes scoring to the single shared `withSummary` in
 // recapSummary.ts (both DB backends call the same code — one scoring source).
 
-export type { RecapData } from './recapSummary.js';
+export type { RecapData, RoomRecording } from './recapSummary.js';
 
 export async function getRecap(roomId: string): Promise<RecapData | null> {
   const room = await getRoomById(roomId);
@@ -322,6 +377,7 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
   const participants = await getParticipantsByRoom(roomId);
   const transcript = await getTranscriptEvents(roomId);
   const gameRounds = await getGameRounds(roomId);
+  const recordings = await getRoomRecordings(roomId);
 
   const gameRoundsWithSubs: RecapBase['gameRounds'] = await Promise.all(
     gameRounds.map(async (gr) => {
@@ -368,6 +424,15 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
       createdAt: toISO(t.created_at) ?? '',
     })),
     gameRounds: gameRoundsWithSubs,
+    recordings: recordings.map((r) => ({
+      id: r.id,
+      downloadUrl: r.download_url,
+      filepath: r.filepath,
+      audioOnly: r.audio_only,
+      durationSec: r.duration_sec,
+      startedAt: toISO(r.started_at),
+      createdAt: toISO(r.created_at) ?? '',
+    })),
   };
 
   return withSummary(recapBase);

@@ -42,6 +42,8 @@ export interface MeetingState {
   }>;
   gameQuiet: boolean;
   recording: boolean;
+  /** Server can start a recording (LiveKit + an S3 destination configured). */
+  recordingAvailable: boolean;
   recordingResult: { downloadUrl: string | null; filename: string | null } | null;
   recordingError: string | null;
 }
@@ -99,6 +101,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   // Games keep syncing state but suppress attention-drawing notifications.
   const [gameQuiet, setGameQuiet] = useState(false);
   const [recording, setRecording] = useState(false);
+  // Optimistic default: older servers omit `recordingAvailable`, so assume
+  // available and let the server's recording:error carry the real reason.
+  const [recordingAvailable, setRecordingAvailable] = useState(true);
   const [recordingResult, setRecordingResult] = useState<MeetingState['recordingResult']>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
 
@@ -130,6 +135,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         setBingo(payload.bingo);
         setStats(payload.stats ?? []);
         setRecording(Boolean(payload.recording));
+      if (payload.recordingAvailable !== undefined) {
+        setRecordingAvailable(payload.recordingAvailable);
+      }
         if (payload.roomState) {
           setRoom((prev) => prev ? { ...prev, state: payload.roomState } : prev);
         }
@@ -1067,6 +1075,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     captions,
     gameQuiet,
     recording,
+    recordingAvailable,
     recordingResult,
     recordingError,
   };

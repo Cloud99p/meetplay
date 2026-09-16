@@ -4,6 +4,7 @@ import type { RecapData } from '../../lib/api';
 import {
   FiClock, FiMessageSquare, FiAward, FiUsers, FiChevronLeft,
   FiLink, FiCheck, FiSearch, FiStar, FiMessageCircle, FiDownload,
+  FiVideo, FiHeadphones,
 } from 'react-icons/fi';
 
 interface Props {
@@ -232,6 +233,80 @@ export default function RecapPage({ roomId, onBack }: Props) {
         {/* 1.5. Recap quiz — did you actually listen? */}
         {quizQuestions && quizQuestions.length > 0 && (
           <QuizSection questions={quizQuestions} />
+        )}
+
+        {/* 1.6. Call recording (LiveKit Egress → S3-compatible bucket).
+            Playback lives here rather than only in the call UI because egress
+            finalizes the upload AFTER the room is deleted — by the time the
+            host lands on the recap, the in-call link is gone. */}
+        {recap.recordings && recap.recordings.length > 0 && (
+          <section>
+            <h2 className="text-sm font-heading font-semibold text-foreground mb-3 flex items-center gap-2">
+              <FiVideo className="w-4 h-4 text-destructive" /> Recording
+            </h2>
+            <div className="space-y-3">
+              {recap.recordings.map((rec) => (
+                <div
+                  key={rec.id}
+                  className="bg-bg-surface border border-border rounded-xl overflow-hidden"
+                >
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 border-b border-border">
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                      {rec.audioOnly ? (
+                        <FiHeadphones className="w-3.5 h-3.5 text-secondary" />
+                      ) : (
+                        <FiVideo className="w-3.5 h-3.5 text-secondary" />
+                      )}
+                      {rec.audioOnly ? 'Audio only' : 'Video'}
+                    </span>
+                    {rec.durationSec > 0 && (
+                      <span className="text-xs text-muted">
+                        {formatDuration(rec.durationSec)}
+                      </span>
+                    )}
+                    <span className="text-xs text-muted">
+                      {formatTime(rec.startedAt || rec.createdAt)}
+                    </span>
+                    {rec.downloadUrl && (
+                      <a
+                        href={rec.downloadUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        download
+                        className="ml-auto flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80"
+                      >
+                        <FiDownload className="w-3.5 h-3.5" /> Download
+                      </a>
+                    )}
+                  </div>
+
+                  {rec.downloadUrl ? (
+                    rec.audioOnly ? (
+                      <audio controls preload="metadata" src={rec.downloadUrl} className="w-full p-3" />
+                    ) : (
+                      <video
+                        controls
+                        preload="metadata"
+                        playsInline
+                        src={rec.downloadUrl}
+                        className="w-full max-h-[420px] bg-black"
+                      />
+                    )
+                  ) : (
+                    <p className="px-4 py-3 text-xs text-muted leading-relaxed">
+                      Recording finalized on the server{' '}
+                      {rec.filepath && (
+                        <span className="font-mono text-[11px] break-all">{rec.filepath}</span>
+                      )}
+                      . This bucket has no public URL configured, so it can't be played
+                      inline — set <span className="font-mono">S3_PUBLIC_BASE_URL</span> (or a
+                      bucket policy) and it will appear here.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* 2. Meeting info: participants with join times */}

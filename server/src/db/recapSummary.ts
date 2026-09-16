@@ -9,6 +9,18 @@
  * Pure function: no I/O, no imports from either backend.
  */
 
+export interface RoomRecording {
+  id: string;
+  /** Directly playable/downloadable URL when the bucket is public. */
+  downloadUrl: string | null;
+  /** Object key inside the bucket (always present; the URL may be null). */
+  filepath: string | null;
+  audioOnly: boolean;
+  durationSec: number;
+  startedAt: string | null; // ISO
+  createdAt: string; // ISO
+}
+
 export interface RecapBase {
   room: {
     id: string;
@@ -43,6 +55,8 @@ export interface RecapBase {
       score: number;
     }>;
   }>;
+  /** Call recordings for this room, newest first ([] when never recorded). */
+  recordings?: RoomRecording[];
 }
 
 export interface LeaderboardEntry {

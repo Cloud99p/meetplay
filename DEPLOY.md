@@ -41,6 +41,15 @@ This repo includes `railway.json` (Dockerfile builder, `/health` probe).
 | `VITE_STT_MODE` | `mock` | `mock` \| `webspeech` \| `deepgram` (baked at build time) |
 | `VITE_LIVEKIT_URL` | — | Client-side LiveKit URL override (baked at build time) |
 | `VITE_SERVER_URL` | `''` (same-origin) | Override API/WS base URL |
+| `S3_BUCKET` | — | **Call recording**: bucket for egress uploads. Unset = record button disabled with a reason |
+| `S3_ACCESS_KEY` / `S3_SECRET` | — | Credentials for that bucket (R2/S3/B2/MinIO) |
+| `S3_ENDPOINT` | AWS default | e.g. `https://<acct>.r2.cloudflarestorage.com` (omit for real AWS) |
+| `S3_REGION` | `auto` | `auto` for R2; e.g. `us-east-1` for AWS |
+| `S3_FORCE_PATH_STYLE` | `1` | Required by R2/MinIO/B2; `0` for AWS |
+| `S3_PUBLIC_BASE_URL` | — | Public/CDN base URL so the recap can **play** the recording inline (alias `R2_PUBLIC_BASE_URL`) |
+| `RECORDING_AUDIO_ONLY` | `0` | `1` = audio-only `.ogg` — 4× cheaper egress minutes |
+| `RECORDING_PRESET` | `H264_1080P_30` | Egress video preset (`H264_720P_30` = smaller files) |
+| `RECORDING_ENABLED` | `1` | `0` force-disables recording |
 
 > ⚠️ **VITE_* vars are baked into the frontend at build time** — changing them
 > requires a redeploy. **Server vars (LIVEKIT_*, JWT_SECRET, DATABASE_URL) are

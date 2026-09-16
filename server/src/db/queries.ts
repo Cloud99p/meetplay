@@ -58,7 +58,13 @@ export const updateGameRound = impl.updateGameRound;
 export const saveGameSubmission = impl.saveGameSubmission;
 export const getGameSubmissions = impl.getGameSubmissions;
 
+// ─── Room Recordings ────────────────────────────────────────
+
+export const saveRoomRecording = impl.saveRoomRecording;
+export const getRoomRecordings = impl.getRoomRecordings;
+
 // ─── Recap ──────────────────────────────────────────────────
 
 export const getRecap = impl.getRecap;
 export type RecapData = import('./recapSummary.js').RecapData;
+export type RoomRecording = import('./recapSummary.js').RoomRecording;

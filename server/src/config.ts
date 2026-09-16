@@ -31,6 +31,42 @@ export interface ServerConfig {
   omnilearnUrl: string;
   omnilearnApiKey: string;
   omnilearnEnabled: boolean;
+  /** Call recording (LiveKit Egress) — see S3RecordingConfig below. */
+  recordingEnabled: boolean;
+  recordingAudioOnly: boolean;
+  recordingPreset: string;
+  recordingS3: S3RecordingConfig | null;
+}
+
+/**
+ * S3-compatible destination for egress recordings.
+ *
+ * Egress has NO managed storage: every EncodedFileOutput must name a
+ * destination bucket (`output: { case: 's3' | 'gcp' | 'azure' | 'aliOSS' }`),
+ * otherwise the API rejects the request with "missing or invalid field:
+ * output". Cloudflare R2 / Backblaze B2 / MinIO all speak the S3 API, so a
+ * single S3 config covers every free/cheap option:
+ *
+ *   Cloudflare R2 (10 GB free, no egress fees):
+ *     S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+ *     S3_REGION=auto
+ *     S3_FORCE_PATH_STYLE=1
+ *     S3_PUBLIC_BASE_URL=https://pub-<hash>.r2.dev   (or a custom domain)
+ *
+ * `publicBaseUrl` is only used to build a download link when egress doesn't
+ * return one itself (self-hosted/R2 setups return `filepath`, not a URL).
+ */
+export interface S3RecordingConfig {
+  accessKey: string;
+  secret: string;
+  bucket: string;
+  region: string;
+  endpoint: string;
+  forcePathStyle: boolean;
+  /** Public bucket/CDN base URL used to build a download link. Optional. */
+  publicBaseUrl: string;
+  /** Object-key prefix inside the bucket (default 'meetplay'). */
+  prefix: string;
 }
 
 const env = process.env;
@@ -92,6 +128,43 @@ export function loadConfig(): ServerConfig {
     omnilearnUrl: env.OMNILEARN_URL?.trim() || 'http://localhost:8080',
     omnilearnApiKey: env.OMNILEARN_API_KEY?.trim() || '',
     omnilearnEnabled: env.OMNILEARN_ENABLED !== '0',
+    // RECORDING_ENABLED=0 force-disables. Otherwise recording is "on" as
+    // soon as a storage destination exists (checked in recording.ts) —
+    // the button simply fails with a clear reason when S3 is missing.
+    recordingEnabled: env.RECORDING_ENABLED !== '0',
+    // Audio-only recording (OGG/Opus) skips the video pipeline entirely:
+    // far cheaper, tiny files, and a transcript-friendly artifact. Video is
+    // the default because the recap page plays it back inline.
+    recordingAudioOnly: env.RECORDING_AUDIO_ONLY === '1',
+    recordingPreset: env.RECORDING_PRESET?.trim() || 'H264_1080P_30',
+    recordingS3: readS3Config(),
+  };
+}
+
+/**
+ * Read the S3-compatible recording destination from the environment.
+ * Returns null unless the minimum (bucket + key + secret) is present, so a
+ * half-configured deployment degrades to "recording unavailable" instead of
+ * a confusing egress failure.
+ */
+function readS3Config(): S3RecordingConfig | null {
+  const bucket = env.S3_BUCKET?.trim() ?? '';
+  const accessKey = (env.S3_ACCESS_KEY ?? env.S3_ACCESS_KEY_ID)?.trim() ?? '';
+  const secret = (env.S3_SECRET ?? env.S3_SECRET_ACCESS_KEY)?.trim() ?? '';
+  if (!bucket || !accessKey || !secret) return null;
+  return {
+    accessKey,
+    secret,
+    bucket,
+    // R2 ignores region but the AWS SDK needs *something*; 'auto' is R2's
+    // documented placeholder and is harmless on real AWS when S3_REGION is set.
+    region: env.S3_REGION?.trim() || 'auto',
+    endpoint: env.S3_ENDPOINT?.trim() || '',
+    // Path-style is required by R2/MinIO; AWS accepts it too. Default on
+    // unless explicitly disabled.
+    forcePathStyle: env.S3_FORCE_PATH_STYLE !== '0',
+    publicBaseUrl: (env.S3_PUBLIC_BASE_URL ?? env.R2_PUBLIC_BASE_URL)?.trim() || '',
+    prefix: env.S3_PREFIX?.trim().replace(/^\/+|\/+$/g, '') || 'meetplay',
   };
 }
 

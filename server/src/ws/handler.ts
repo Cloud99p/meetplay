@@ -30,7 +30,7 @@ import {
   setParticipantMediaMuted,
   removeParticipantFromLiveKit,
 } from '../livekit/moderation.js';
-import { isRecording } from '../livekit/recording.js';
+import { isRecording, recordingAvailability, startRecording, stopRecordingAndSave } from '../livekit/recording.js';
 import { omniClient } from '../intelligence/omniClient.js';
 
 // Track host disconnect timers: roomId -> { hostId, timer }
@@ -92,6 +92,9 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
         transcriptionEnabled: room.transcription_enabled,
         roomState: room.state,
         recording: isRecording(roomId),
+        // Lets the host UI disable the record button with a reason instead of
+        // letting the click fail with a server error.
+        recordingAvailable: recordingAvailability().available,
         activeRound,
         leaderboard,
         market,
@@ -480,6 +483,20 @@ async function handleMessage(
     case 'room:end': {
       const isHost = await checkIsHost(roomId, senderId);
       if (!isHost) return;
+      // Finalize any live recording BEFORE tearing down the room, and hand the
+      // host the download link: ending the meeting is the most common way a
+      // recording stops, and after `endMeetingRoom` the client navigates away.
+      const recapRecording = await stopRecordingAndSave(roomId);
+      if (recapRecording) {
+        channelManager.sendTo(roomId, senderId, {
+          type: 'recording:stopped',
+          payload: {
+            recording: false,
+            downloadUrl: recapRecording.downloadUrl,
+            filename: recapRecording.filename,
+          },
+        });
+      }
       await endMeetingRoom(roomId);
       cancelHostTimersForRoom(roomId);
       break;
@@ -488,19 +505,42 @@ async function handleMessage(
     case 'recording:start': {
       const isHost = await checkIsHost(roomId, senderId);
       if (!isHost) return;
-      // Recording is DISABLED: LiveKit egress requires a cloud storage
-      // destination (S3/GCP/Azure) which MeetPlay doesn't have, so egress
-      // always fails with "request has missing or invalid field: output".
-      // Short-circuit here instead of attempting the broken egress call.
-      channelManager.sendTo(roomId, senderId, {
-        type: 'recording:error',
-        payload: { message: 'Recording is unavailable (no storage configured).' },
+      const started = await startRecording(roomId);
+      if (!started.ok) {
+        channelManager.sendTo(roomId, senderId, {
+          type: 'recording:error',
+          payload: { message: started.error },
+        });
+        break;
+      }
+      // Everyone sees the REC indicator, so nobody is recorded unknowingly.
+      channelManager.broadcast(roomId, {
+        type: 'recording:started',
+        payload: { recording: true, startedAt: started.startedAt },
       });
       break;
     }
 
     case 'recording:stop': {
-      // No-op: recording is disabled (see recording:start above).
+      const isHost = await checkIsHost(roomId, senderId);
+      if (!isHost) return;
+      const result = await stopRecordingAndSave(roomId);
+      if (!result) break;
+      // Broadcast the state change (no URL) to the room, then hand the host
+      // the actual link — participants may watch it live but only the host
+      // owns the artifact.
+      channelManager.broadcast(roomId, {
+        type: 'recording:stopped',
+        payload: { recording: false, downloadUrl: null, filename: null },
+      });
+      channelManager.sendTo(roomId, senderId, {
+        type: 'recording:stopped',
+        payload: {
+          recording: false,
+          downloadUrl: result.downloadUrl,
+          filename: result.filename,
+        },
+      });
       break;
     }
 

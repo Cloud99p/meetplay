@@ -72,6 +72,18 @@ export interface RecapData {
     correctGuesses: number;
     totalGuesses: number;
   }>;
+  /** Call recordings (LiveKit Egress → S3). Empty when never recorded. */
+  recordings?: Array<{
+    id: string;
+    /** Playable link when the bucket is public (R2 pub-*.r2.dev / CDN). */
+    downloadUrl: string | null;
+    /** Object key in the bucket — shown when no public URL is available. */
+    filepath: string | null;
+    audioOnly: boolean;
+    durationSec: number;
+    startedAt: string | null;
+    createdAt: string;
+  }>;
 }
 
 export function getServerUrl(): string {

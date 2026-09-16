@@ -2,7 +2,7 @@ import { useState, useContext } from 'react';
 import {
   FiMic, FiMicOff, FiVideo, FiVideoOff,
   FiMonitor, FiMessageSquare, FiUsers,
-  FiLogOut, FiSmile,
+  FiLogOut, FiSmile, FiCircle,
 } from 'react-icons/fi';
 import { LuHand } from 'react-icons/lu';
 import { RoomContext } from '@livekit/components-react';
@@ -15,6 +15,12 @@ interface Props {
   isHost: boolean;
   transcriptionEnabled: boolean;
   recording: boolean;
+  /**
+   * False when the server has no storage destination for egress (no S3_*
+   * env vars): the button stays visible but disabled with an explanatory
+   * tooltip, instead of silently failing on click.
+   */
+  recordingAvailable?: boolean;
   /** Authoritative mic state from MeetingRoom — works even when LiveKit is
    *  disconnected (text mode) or the mic track hasn't been published yet.
    *  Previously the icon derived from micPub?.isMuted, which is `undefined`
@@ -38,9 +44,10 @@ interface Props {
 export default function ControlBar({
   isHost,
   transcriptionEnabled,
-  recording: _recording,
+  recording,
+  recordingAvailable = true,
   micMuted,
-  onToggleRecording: _onToggleRecording,
+  onToggleRecording,
   onToggleMic,
   onToggleCam,
   onToggleScreenShare,
@@ -124,11 +131,33 @@ export default function ControlBar({
         )}
       </div>
 
-      {/* Host: record the call — DISABLED (no cloud storage for egress; see
-          server/src/livekit/recording.ts). LiveKit egress requires an
-          S3/GCP/Azure bucket which MeetPlay doesn't have, so recording is
-          unavailable. Button intentionally not rendered. Re-enable once a
-          storage destination is wired up. */}
+      {/* Host: record the call.
+          Egress needs an S3-compatible destination (see
+          server/src/livekit/recording.ts) — when the server has none the
+          button is disabled with the reason in the tooltip rather than
+          failing on click. The REC state renders for every participant so
+          nobody is recorded unknowingly. */}
+      {isHost && (
+        <button
+          onClick={onToggleRecording}
+          disabled={!recordingAvailable && !recording}
+          className={`${btnClass} ${
+            recording
+              ? 'bg-destructive/20 text-destructive'
+              : ''
+          } ${!recordingAvailable && !recording ? 'opacity-40 cursor-not-allowed' : ''}`}
+          title={
+            recording
+              ? 'Stop recording'
+              : recordingAvailable
+                ? 'Record call'
+                : 'Recording unavailable — server has no storage destination configured'
+          }
+        >
+          {/* Filled dot while live, ring otherwise */}
+          <FiCircle className={`w-4 h-4 ${recording ? 'fill-current animate-pulse' : ''}`} />
+        </button>
+      )}
 
       <div className="w-px h-6 bg-border mx-1" />
 
