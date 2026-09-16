@@ -168,6 +168,45 @@ const MIGRATIONS: string[] = [
        END IF;
      END LOOP;
    END $$`,
+
+  // 2026-09-16 — STOP THE PUBLIC DATA API FROM READING APP TABLES (security).
+  //
+  // MeetPlay's backend talks to Postgres directly as the table owner, so the
+  // Supabase Data API (PostgREST) needs NO access to these tables. Without
+  // RLS they were anon-readable — verified against the live project:
+  //
+  //   GET https://<ref>.supabase.co/rest/v1/transcript_events
+  //     apikey: <publishable key>   → HTTP 200  [ ...rows... ]
+  //
+  // The publishable key is designed to ship inside client bundles (it is in
+  // ours), so "anyone with the key" means anyone. For a product holding
+  // students' meeting transcripts, chat and recording URLs that is a data
+  // breach waiting for the first real session.
+  //
+  // RLS with NO policies = deny by default for anon/authenticated, while the
+  // table owner (our server's role) still bypasses RLS, so the app is
+  // unaffected. Deliberately NOT "FORCE ROW LEVEL SECURITY" — that would
+  // apply the deny-all to the owner and lock the app out of its own data.
+  // On plain Postgres the revoke block is skipped (no such roles).
+  `ALTER TABLE rooms ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE participants ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE transcript_events ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE game_rounds ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE game_submissions ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE room_recordings ENABLE ROW LEVEL SECURITY`,
+  `DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+        AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+       -- Existing tables.
+       REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+       -- And tables added later by this role, so new app tables are not born
+       -- exposed (Supabase grants these by default in public).
+       ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+       RAISE NOTICE 'meetplay: revoked anon/authenticated access to public tables';
+     END IF;
+   END $$`,
 ];
 
 export async function runMigrations(): Promise<void> {

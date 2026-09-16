@@ -86,3 +86,29 @@ CREATE INDEX IF NOT EXISTS idx_chat_room ON chat_messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_transcript_room ON transcript_events(room_id);
 CREATE INDEX IF NOT EXISTS idx_game_rounds_room ON game_rounds(room_id);
 CREATE INDEX IF NOT EXISTS idx_game_submissions_round ON game_submissions(round_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Public Data API lockdown (2026-09-16)
+--
+-- MeetPlay's backend reads/writes these tables directly as the owner, so the
+-- Supabase Data API needs no access. Without RLS the tables were readable by
+-- anyone holding the publishable key (which ships in our client bundle).
+-- RLS with no policies denies anon/authenticated; the owner still bypasses it.
+-- The revoke is skipped on plain Postgres, where those roles do not exist.
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE rooms              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE participants       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transcript_events  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_rounds        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_submissions   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE room_recordings    ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+     AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+  END IF;
+END $$;

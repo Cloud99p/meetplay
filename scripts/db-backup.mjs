@@ -12,7 +12,14 @@
 //   DATABASE_URL=postgres://... node scripts/db-backup.mjs
 //
 // pg_dump discovery: uses a local `pg_dump` if one is on PATH, otherwise falls
-// back to `docker run --rm postgres:16 pg_dump` (no local install needed).
+// back to `docker run --rm postgres:17 pg_dump` (no local install needed).
+//
+// Two gotchas learned against a real managed database (Supabase, PG 17.6):
+//   * pg_dump REFUSES to dump a server with a newer major version than the
+//     binary, so the image tracks the server major (17), not "latest stable".
+//   * Docker's embedded DNS can fail to resolve pooler hostnames even when the
+//     host resolves them fine ("Temporary failure in name resolution"), so the
+//     container is given public resolvers explicitly.
 //
 // Restore:
 //   gunzip -c backups/meetplay-<stamp>.sql.gz | psql "$DATABASE_URL"
@@ -36,6 +43,14 @@ const args = process.argv.slice(2);
 const outIdx = args.indexOf('--out');
 const outDir = path.resolve(outIdx >= 0 ? args[outIdx + 1] : 'backups');
 const KEEP = Number(process.env.BACKUP_KEEP ?? 14);
+// Dump only the app's schema. Supabase-managed schemas (auth, storage, ...) are
+// not ours to restore, reference provider-only roles, and would make the dump
+// un-restorable on a plain Postgres. Override with BACKUP_SCHEMA if needed.
+const SCHEMA = process.env.BACKUP_SCHEMA ?? 'public';
+
+// Force public resolvers inside the Docker fallback: Docker's embedded DNS can
+// fail on pooler hostnames that the host itself resolves fine.
+const DOCKER_DNS = ['--dns', '1.1.1.1', '--dns', '8.8.8.8'];
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -60,13 +75,13 @@ function resolvePgDump() {
   if (local.status === 0) {
     return { cmd: 'pg_dump', baseArgs: [], label: local.stdout.trim() };
   }
-  const docker = run('docker', ['run', '--rm', 'postgres:16', 'pg_dump', '--version'], {
+  const docker = run('docker', ['run', '--rm', ...DOCKER_DNS, 'postgres:17', 'pg_dump', '--version'], {
     encoding: 'utf8',
   });
   if (docker.status === 0) {
     return {
       cmd: 'docker',
-      baseArgs: ['run', '--rm', '-i', 'postgres:16', 'pg_dump'],
+      baseArgs: ['run', '--rm', '-i', ...DOCKER_DNS, 'postgres:17', 'pg_dump'],
       label: `${docker.stdout.trim()} (via docker)`,
       viaDocker: true,
     };
@@ -79,11 +94,17 @@ if (!pgDump) {
   console.error(
     'No pg_dump found.\n' +
       '  Install PostgreSQL client tools (adds pg_dump to PATH), or\n' +
-      '  install Docker (the script then uses the postgres:16 image).',
+      '  install Docker (the script then uses the postgres:17 image).',
   );
   process.exit(1);
 }
 console.log(`Using: ${pgDump.label}`);
+
+// A pg_dump older than the server's major version aborts with
+// "server version mismatch". Warn early with the actionable fix.
+if (pgDump.viaDocker && /pg_dump \(PostgreSQL\) 1([0-6])\./.test(pgDump.label)) {
+  console.warn('WARNING: pg_dump is older than a PG 17 server — upgrade the image/tools.');
+}
 
 fs.mkdirSync(outDir, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -99,6 +120,7 @@ const dump = run(
     '--no-privileges',
     '--clean',
     '--if-exists',
+    `--schema=${SCHEMA}`,
     // Inside a Docker fallback, `localhost` is the container itself — a local
     // dev database on the host is reached via host.docker.internal.
     pgDump.viaDocker
@@ -117,7 +139,7 @@ if (dump.status !== 0) {
 const { gzipSync } = await import('node:zlib');
 fs.writeFileSync(outFile, gzipSync(dump.stdout, { level: 9 }));
 const sizeKb = (fs.statSync(outFile).size / 1024).toFixed(1);
-console.log(`Wrote ${outFile} (${sizeKb} KB)`);
+console.log(`Wrote ${outFile} (${sizeKb} KB)  [schema: ${SCHEMA}]`);
 
 // Sanity check: a dump of an empty/failed run is a few hundred bytes.
 if (fs.statSync(outFile).size < 512) {

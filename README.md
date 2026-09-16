@@ -129,6 +129,8 @@ node scripts/recap-test.mjs 3001         # recap: transcript, rounds, leaderboar
 node scripts/security-fixes-test.mjs     # auth 401/403/200 matrix, lockout, CORS (16/16)
 node scripts/verify-speaker-mapping.mjs  # STT speaker → participant mapping (6/6)
 node scripts/verify-livekit-token.mjs    # LiveKit Cloud token signature check
+node --env-file=.env scripts/verify-postgres.mjs      # Postgres schema + data path (36/36)
+node --env-file=.env scripts/verify-db-security.mjs   # app tables stay off the Data API (24/24)
 ```
 
 (Start the server first: `PORT=3001 USE_MEMORY_DB=1 node server/dist/index.js`

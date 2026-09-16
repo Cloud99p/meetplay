@@ -32,7 +32,7 @@ This repo includes `railway.json` (Dockerfile builder, `/health` probe).
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `JWT_SECRET` | `meetplay-dev-secret` | Room token signing — **set a long random string in prod** (`openssl rand -hex 32`) |
-| `DATABASE_URL` | (none → in-memory) | Postgres connection string for persistence; set `USE_MEMORY_DB=0`. Migrations run automatically at boot — see [docs/POSTGRES.md](docs/POSTGRES.md) |
+| `DATABASE_URL` | (none → in-memory) | Postgres connection string for persistence; set `USE_MEMORY_DB=0`. **Use the session pooler (port 5432)** — the direct host is IPv6-only on Supabase's free tier and the 6543 transaction pooler breaks migrations/backups. Migrations run automatically at boot — see [docs/POSTGRES.md](docs/POSTGRES.md) |
 | `USE_MEMORY_DB` | `1` | In-memory DB (data resets on restart). Set `0` in prod |
 | `DATABASE_SSL` | auto | TLS for managed databases. `require` (default off-localhost), `verify`, `disable` |
 | `DATABASE_POOL_MAX` | `10` | Pool size — keep within your pooler's per-project limit |

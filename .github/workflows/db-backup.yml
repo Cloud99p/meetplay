@@ -54,13 +54,16 @@ jobs:
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install PostgreSQL client 16
+      - name: Install PostgreSQL client 17
         if: steps.check.outputs.skip == 'false'
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client-16
+          # Version parity with the SERVER matters: pg_dump aborts with "server
+          # version mismatch" when the server's major is newer than the client's.
+          # Supabase runs PostgreSQL 17, so the client must be 17 too.
+          sudo apt-get install -y -qq postgresql-client-17
 
       - name: Dump database
         if: steps.check.outputs.skip == 'false'
@@ -73,7 +76,10 @@ jobs:
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           # --no-owner/--no-privileges: managed providers don't let you
           # recreate their roles, so the dump must not depend on them.
-          pg_dump --no-owner --no-privileges --clean --if-exists "$DATABASE_URL" \
+          # --schema=public: app schema only. Supabase's own schemas (auth,
+          # storage, ...) are not ours to restore and reference provider-only
+          # roles, which makes a full-database dump un-restorable elsewhere.
+          pg_dump --no-owner --no-privileges --clean --if-exists --schema=public "$DATABASE_URL" \
             | gzip -9 > "meetplay-$STAMP.sql.gz"
           ls -lh "meetplay-$STAMP.sql.gz"
           # Fail loudly on a suspiciously small dump instead of storing a dud.
