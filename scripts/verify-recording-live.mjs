@@ -149,7 +149,25 @@ try {
   console.error('\nAborted:', e?.message ?? e);
   failures++;
 } finally {
-  // ─── 7. Clean up the probe room (cascades to participants/recordings) ────
+  // ─── 7. Tear the probe room down the way the app does it ────────────────
+  // Order matters: DELETE the row first and the deployed server still holds an
+  // in-memory game engine for that room, which then fails noisily when it tries
+  // to open a flash round against a room that no longer exists:
+  //   openFlashRound error: ... violates foreign key constraint "game_rounds_room_id_fkey"
+  // So: end the meeting over the API (that destroys the engine, tears down WS
+  // channels and flushes Omnilearn), THEN remove the leftover row.
+  if (roomId && hostToken) {
+    try {
+      const endRes = await fetch(`${BASE}/api/rooms/${roomId}/end`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${hostToken}` },
+      });
+      console.log(`\nended probe room via API (status ${endRes.status})`);
+    } catch (e) {
+      console.warn(`\ncould not end probe room over the API: ${e.message}`);
+    }
+  }
+
   const url = process.env.DATABASE_URL;
   if (roomId && url && !keep) {
     const useSsl = /localhost|127\.0\.0\.1/.test(url)
