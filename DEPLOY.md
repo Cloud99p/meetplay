@@ -32,8 +32,10 @@ This repo includes `railway.json` (Dockerfile builder, `/health` probe).
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `JWT_SECRET` | `meetplay-dev-secret` | Room token signing — **set a long random string in prod** (`openssl rand -hex 32`) |
-| `DATABASE_URL` | (none → in-memory) | Postgres connection string for persistence; set `USE_MEMORY_DB=0` |
-| `USE_MEMORY_DB` | `1` | In-memory DB (data resets on restart) |
+| `DATABASE_URL` | (none → in-memory) | Postgres connection string for persistence; set `USE_MEMORY_DB=0`. Migrations run automatically at boot — see [docs/POSTGRES.md](docs/POSTGRES.md) |
+| `USE_MEMORY_DB` | `1` | In-memory DB (data resets on restart). Set `0` in prod |
+| `DATABASE_SSL` | auto | TLS for managed databases. `require` (default off-localhost), `verify`, `disable` |
+| `DATABASE_POOL_MAX` | `10` | Pool size — keep within your pooler's per-project limit |
 | `RATE_LIMIT_MAX` | `120` | API rate limit per IP per minute |
 | `PORT` | `3001` | Server port (Railway injects it automatically) |
 | `DEEPGRAM_API_KEY` | — | Deepgram key (server-side /api/stt proxy) — required when `VITE_STT_MODE=deepgram` |

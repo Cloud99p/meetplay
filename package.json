@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:up": "docker run -d --name meetplay-pg-test -e POSTGRES_PASSWORD=testpass -e POSTGRES_USER=meetplay -e POSTGRES_DB=meetplay -p 55432:5432 postgres:16",
+    "db:down": "docker rm -f meetplay-pg-test",
+    "db:verify": "node scripts/verify-postgres.mjs",
+    "db:backup": "node scripts/db-backup.mjs",
+    "verify:recording": "node scripts/verify-recording-egress.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

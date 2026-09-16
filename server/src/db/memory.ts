@@ -176,6 +176,19 @@ export async function getParticipantById(id: string) {
 
 export async function removeParticipant(id: string) {
   store.participants.delete(id);
+  // Mirror the Postgres ON DELETE CASCADE rules for chat/transcript/game
+  // submissions (see migrate.ts). Without this the two backends diverge: the
+  // recap would keep showing a removed participant's words in memory mode but
+  // not in Postgres.
+  for (const [key, c] of store.chatMessages) {
+    if (c.participant_id === id) store.chatMessages.delete(key);
+  }
+  for (const [key, t] of store.transcriptEvents) {
+    if (t.participant_id === id) store.transcriptEvents.delete(key);
+  }
+  for (const [key, s] of store.gameSubmissions) {
+    if (s.participant_id === id) store.gameSubmissions.delete(key);
+  }
 }
 
 export async function promoteToHost(participantId: string) {

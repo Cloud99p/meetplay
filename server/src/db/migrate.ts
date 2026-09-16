@@ -6,6 +6,98 @@
 // EXISTS` so a redeploy on an old or new schema is always a no-op success.
 //
 // Add new schema changes as new entries at the END of the list.
+
+// ─── Base schema (bootstrap) ────────────────────────────────────────────────
+//
+// This used to live ONLY in db/init.sql, which docker-compose mounts into the
+// Postgres container's entrypoint. That works locally and silently breaks
+// production: a managed database (Supabase/Railway/Neon/RDS) never sees that
+// file, so the first migration would fail with `relation "rooms" does not
+// exist`. Bootstrapping here means "point DATABASE_URL at an empty database
+// and start the server" is all it takes.
+//
+// db/init.sql is kept in sync for local docker-compose users and for anyone
+// who prefers to apply the schema by hand.
+const BOOTSTRAP: Array<{ sql: string; optional?: boolean }> = [
+  // gen_random_uuid() is built into Postgres 13+; this is only for older
+  // servers. Some managed plans don't allow CREATE EXTENSION, so it must not
+  // be able to abort the boot.
+  { sql: `CREATE EXTENSION IF NOT EXISTS "pgcrypto"`, optional: true },
+
+  {
+    sql: `CREATE TABLE IF NOT EXISTS rooms (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       name TEXT,
+       password_hash TEXT,
+       host_participant_id UUID,
+       transcription_enabled BOOLEAN DEFAULT true,
+       state TEXT DEFAULT 'active',
+       created_at TIMESTAMPTZ DEFAULT now(),
+       ended_at TIMESTAMPTZ
+     )`,
+  },
+  {
+    sql: `CREATE TABLE IF NOT EXISTS participants (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
+       name TEXT NOT NULL,
+       is_host BOOLEAN DEFAULT false,
+       is_muted BOOLEAN DEFAULT false,
+       is_camera_off BOOLEAN DEFAULT false,
+       joined_at TIMESTAMPTZ DEFAULT now(),
+       livekit_identity TEXT UNIQUE,
+       user_id TEXT
+     )`,
+  },
+  {
+    sql: `CREATE TABLE IF NOT EXISTS chat_messages (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
+       participant_id UUID REFERENCES participants(id),
+       content TEXT NOT NULL,
+       created_at TIMESTAMPTZ DEFAULT now()
+     )`,
+  },
+  {
+    sql: `CREATE TABLE IF NOT EXISTS transcript_events (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
+       participant_id UUID REFERENCES participants(id),
+       text TEXT NOT NULL,
+       is_final BOOLEAN DEFAULT false,
+       created_at TIMESTAMPTZ DEFAULT now()
+     )`,
+  },
+  {
+    sql: `CREATE TABLE IF NOT EXISTS game_rounds (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
+       game_type TEXT NOT NULL,
+       state TEXT DEFAULT 'open',
+       round_data JSONB,
+       started_at TIMESTAMPTZ DEFAULT now(),
+       ended_at TIMESTAMPTZ
+     )`,
+  },
+  {
+    sql: `CREATE TABLE IF NOT EXISTS game_submissions (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       round_id UUID REFERENCES game_rounds(id) ON DELETE CASCADE,
+       participant_id UUID REFERENCES participants(id),
+       submission JSONB,
+       score INTEGER DEFAULT 0,
+       created_at TIMESTAMPTZ DEFAULT now(),
+       UNIQUE(round_id, participant_id)
+     )`,
+  },
+  // Indexes. NOTE: must be IF NOT EXISTS — these run on every boot.
+  { sql: `CREATE INDEX IF NOT EXISTS idx_participants_room ON participants(room_id)` },
+  { sql: `CREATE INDEX IF NOT EXISTS idx_chat_room ON chat_messages(room_id)` },
+  { sql: `CREATE INDEX IF NOT EXISTS idx_transcript_room ON transcript_events(room_id)` },
+  { sql: `CREATE INDEX IF NOT EXISTS idx_game_rounds_room ON game_rounds(room_id)` },
+  { sql: `CREATE INDEX IF NOT EXISTS idx_game_submissions_round ON game_submissions(round_id)` },
+];
+
 const MIGRATIONS: string[] = [
   // 2026-08-06 — host camera-off moderation flag (participant:camera event)
   `ALTER TABLE participants ADD COLUMN IF NOT EXISTS is_camera_off BOOLEAN DEFAULT false`,
@@ -32,18 +124,77 @@ const MIGRATIONS: string[] = [
      created_at TIMESTAMPTZ DEFAULT now()
    )`,
   `CREATE INDEX IF NOT EXISTS idx_room_recordings_room ON room_recordings(room_id)`,
+
+  // 2026-09-16 — FIX DELETES BLOCKED BY PARTICIPANT FKs (production bug).
+  //
+  // chat_messages.participant_id, transcript_events.participant_id and
+  // game_submissions.participant_id referenced participants(id) WITHOUT a
+  // delete rule. Deleting a room cascades to participants (and to the child
+  // rows via their room_id/round_id cascades), but Postgres enforces the
+  // participant FK immediately, mid-cascade, and aborts:
+  //
+  //   update or delete on table "participants" violates foreign key
+  //   constraint "...participant_id_fkey" on table "chat_messages"
+  //
+  // Two real consequences: the abandoned-room privacy purge
+  // (cleanup.ts → DELETE FROM rooms) never removed anything, and a host
+  // removing a participant mid-meeting failed silently. Rows belonging to a
+  // removed participant are deleted with them (same privacy posture as the
+  // room purge, and those rows are already unreachable in the recap because
+  // the recap joins participants).
+  //
+  // Guarded by confdeltype: 'c' = CASCADE, so this is a no-op once applied.
+  `DO $$
+   DECLARE
+     ref RECORD;
+   BEGIN
+     FOR ref IN
+       SELECT * FROM (VALUES
+         ('chat_messages', 'participant_id', 'chat_messages_participant_id_fkey'),
+         ('transcript_events', 'participant_id', 'transcript_events_participant_id_fkey'),
+         ('game_submissions', 'participant_id', 'game_submissions_participant_id_fkey')
+       ) AS t(tbl, col, conname)
+     LOOP
+       IF EXISTS (
+         SELECT 1 FROM pg_constraint
+         WHERE conname = ref.conname AND confdeltype <> 'c'
+       ) THEN
+         EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', ref.tbl, ref.conname);
+         EXECUTE format(
+           'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES participants(id) ON DELETE CASCADE',
+           ref.tbl, ref.conname, ref.col
+         );
+         RAISE NOTICE 'meetplay: added ON DELETE CASCADE to %.%', ref.tbl, ref.conname;
+       END IF;
+     END LOOP;
+   END $$`,
 ];
 
 export async function runMigrations(): Promise<void> {
   // Lazy import so memory-mode deployments never load the `pg` package.
   const { pool } = await import('./pgQueries.js');
-  for (const sql of MIGRATIONS) {
+
+  const run = async (sql: string, label: string, optional = false) => {
     try {
       await pool.query(sql);
-      console.log('[migrate] ok:', sql.replace(/\s+/g, ' ').slice(0, 100));
+      console.log(`[migrate] ok: ${label}`);
     } catch (e) {
-      console.error('[migrate] failed:', sql.replace(/\s+/g, ' ').slice(0, 100), '-', (e as Error)?.message ?? e);
+      if (optional) {
+        console.warn(`[migrate] skipped (optional): ${label} - ${(e as Error)?.message ?? e}`);
+        return;
+      }
+      console.error(`[migrate] failed: ${label} - ${(e as Error)?.message ?? e}`);
       throw e;
     }
+  };
+
+  // 1. Base schema first — an empty database must become a working one.
+  for (const { sql, optional } of BOOTSTRAP) {
+    await run(sql, sql.replace(/\s+/g, ' ').slice(0, 90), optional);
+  }
+
+  // 2. Incremental changes (idempotent, safe to re-run on every boot).
+  for (const sql of MIGRATIONS) {
+    await run(sql, sql.replace(/\s+/g, ' ').slice(0, 90));
   }
 }

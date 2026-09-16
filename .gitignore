@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Local database dumps (scripts/db-backup.mjs) — contain transcript text
+backups/
+
 # Local secrets — never commit
 .env
 .env.*

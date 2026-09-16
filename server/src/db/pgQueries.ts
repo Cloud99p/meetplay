@@ -1,9 +1,7 @@
-import pg from 'pg';
 import { withSummary, type RecapBase, type RecapData } from './recapSummary.js';
+import { createPool } from './pool.js';
 
-export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+export const pool = createPool();
 
 // ─── Row shapes (typed — pg returns untyped rows, so name them explicitly) ──
 

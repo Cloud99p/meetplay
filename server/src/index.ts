@@ -17,11 +17,10 @@ const app = Fastify({ logger: true });
 const USE_MEMORY = !process.env.DATABASE_URL || process.env.USE_MEMORY_DB === '1';
 
 if (!USE_MEMORY) {
-  // Production / docker: connect to real Postgres
-  const pg = await import('pg');
-  const pool = new pg.default.Pool({
-    connectionString: process.env.DATABASE_URL,
-  });
+  // Production / docker: connect to real Postgres. Shared pool config (TLS
+  // for managed providers, small pool for pooler-backed databases).
+  const { createPool } = await import('./db/pool.js');
+  const pool = createPool();
   app.decorate('pg', { pool });
 }
 

@@ -1,0 +1,103 @@
+name: Database backup
+
+# Nightly logical backup of the production Postgres database.
+#
+# WHY THIS EXISTS: Supabase's free tier has NO automated backups (daily
+# backups + PITR require the Pro plan), so "we're on Supabase" is not a backup
+# strategy. This workflow gives you a dump you control, with no extra spend.
+#
+# Setup (one time):
+#   Repo → Settings → Secrets and variables → Actions → New repository secret
+#     DATABASE_URL  = the production connection string (session pooler or
+#                     direct — NOT the transaction pooler on :6543, which does
+#                     not support pg_dump's session-level statements)
+#
+# Optional off-site copy (survives GitHub artifact expiry):
+#     S3_BUCKET, S3_ACCESS_KEY, S3_SECRET, S3_ENDPOINT, S3_REGION
+#   (a Cloudflare R2 bucket works; the same bucket as the call recordings is fine)
+#
+# Artifacts are kept 30 days. For retention beyond that, add the S3 secrets
+# above or enable Supabase Pro backups.
+
+on:
+  schedule:
+    # 02:00 UTC daily (03:00 WAT) — quiet hours for the pilot.
+    - cron: '0 2 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for the DATABASE_URL secret
+        id: check
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "::warning::DATABASE_URL secret is not set — skipping backup."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install PostgreSQL client 16
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+
+      - name: Dump database
+        if: steps.check.outputs.skip == 'false'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PGSSLMODE: require
+        run: |
+          set -o pipefail
+          STAMP=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          # --no-owner/--no-privileges: managed providers don't let you
+          # recreate their roles, so the dump must not depend on them.
+          pg_dump --no-owner --no-privileges --clean --if-exists "$DATABASE_URL" \
+            | gzip -9 > "meetplay-$STAMP.sql.gz"
+          ls -lh "meetplay-$STAMP.sql.gz"
+          # Fail loudly on a suspiciously small dump instead of storing a dud.
+          SIZE=$(stat -c%s "meetplay-$STAMP.sql.gz")
+          if [ "$SIZE" -lt 500 ]; then
+            echo "::error::backup is only ${SIZE} bytes — refusing to store it"
+            exit 1
+          fi
+
+      - name: Upload as workflow artifact
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: meetplay-db-${{ env.STAMP }}
+          path: meetplay-*.sql.gz
+          retention-days: 30
+
+      - name: Upload to S3/R2 (optional)
+        if: steps.check.outputs.skip == 'false' && secrets.S3_BUCKET != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET }}
+          AWS_DEFAULT_REGION: ${{ secrets.S3_REGION }}
+        run: |
+          if [ -n "${{ secrets.S3_ENDPOINT }}" ]; then
+            ENDPOINT_ARG="--endpoint-url ${{ secrets.S3_ENDPOINT }}"
+          else
+            ENDPOINT_ARG=""
+          fi
+          aws s3 cp "meetplay-$STAMP.sql.gz" \
+            "s3://${{ secrets.S3_BUCKET }}/db-backups/meetplay-$STAMP.sql.gz" \
+            $ENDPOINT_ARG
+
+      - name: Summary
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          {
+            echo "### Database backup"
+            echo ""
+            echo "- File: \`meetplay-$STAMP.sql.gz\`"
+            echo "- Restore: \`gunzip -c meetplay-$STAMP.sql.gz | psql \"\$DATABASE_URL\"\`"
+          } >> "$GITHUB_STEP_SUMMARY"
