@@ -1,6 +1,11 @@
-// Dev orchestrator: starts the MeetPlay backend (in-memory DB — no Postgres
-// needed) and the Vite frontend together, so `npm run dev` gives a fully
-// working app with zero external services.
+// Dev orchestrator: starts the MeetPlay backend and the Vite frontend together,
+// so `npm run dev` gives a fully working app.
+//
+// DATABASE MODE: the backend uses whatever `.env` says:
+//   USE_MEMORY_DB=0 + DATABASE_URL  -> real Postgres (Supabase) — data PERSISTS
+//                                      across restarts/sessions
+//   USE_MEMORY_DB=1 (or no DATABASE_URL) -> in-memory store, resets every boot
+// Default when unset: Postgres if DATABASE_URL is present, else in-memory.
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -18,9 +23,26 @@ try {
   console.warn('[dev] Could not load .env:', e.message);
 }
 
+// Respect an explicit USE_MEMORY_DB from .env; otherwise fall back to real
+// Postgres whenever a DATABASE_URL is configured (that's the whole point of
+// having one), and only use the in-memory store when there's no database.
+const useMemoryDb =
+  process.env.USE_MEMORY_DB ?? (process.env.DATABASE_URL ? '0' : '1');
+
+/** Never print credentials — show host + db name only. */
+function maskDb(url) {
+  if (!url) return 'unset';
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`;
+  } catch {
+    return 'configured';
+  }
+}
+
 const serverEnv = {
   ...process.env,
-  USE_MEMORY_DB: '1',
+  USE_MEMORY_DB: useMemoryDb,
   JWT_SECRET: process.env.JWT_SECRET ?? 'meetplay-dev-secret',
   // LiveKit credentials come ONLY from .env / env — no committed fallbacks.
   // Copy .env.example to .env and fill in LIVEKIT_URL/API_KEY/API_SECRET
@@ -102,7 +124,12 @@ function ensureLiveKit() {
 
 ensureLiveKit();
 
-console.log('[dev] Starting MeetPlay backend on :3001 (in-memory DB)…');
+console.log(
+  `[dev] Starting MeetPlay backend on :${serverEnv.PORT} ` +
+    (useMemoryDb === '1'
+      ? '(in-memory DB — data resets on restart)'
+      : `(Postgres — data persists, ${maskDb(process.env.DATABASE_URL)})`),
+);
 
 const server = spawn('npx', ['tsx', 'server/src/index.ts'], {
   stdio: 'inherit',

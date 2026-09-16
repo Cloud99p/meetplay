@@ -151,6 +151,41 @@ was a real gap: docker-compose mounts it, managed databases never do.
 | 2026-09-16 | **`ON DELETE CASCADE` on `chat_messages`, `transcript_events`, `game_submissions` → `participants`** | These FKs had no delete rule, so deleting a room (the 24h privacy purge) aborted with an FK violation and **never purged anything**. Host-remove of a participant failed silently too. |
 | 2026-09-16 | **RLS + revokes on all app tables** | app tables were readable via the public Data API (see §4) |
 
+### Which store is the app using? (dev vs prod)
+
+The server picks its store from env only (`server/src/index.ts`):
+
+| Env | Store | Data survives a restart? |
+|---|---|---|
+| `DATABASE_URL` set, `USE_MEMORY_DB` unset/`0` | **Postgres** | ✅ yes |
+| `USE_MEMORY_DB=1`, or no `DATABASE_URL` | in-memory | ❌ resets every boot |
+
+`npm run dev` follows `.env`: it used to hard-force `USE_MEMORY_DB=1` (so local
+dev silently threw data away on every restart). It now honours an explicit
+`USE_MEMORY_DB` and otherwise prefers Postgres whenever `DATABASE_URL` exists —
+so a `.env` with the Supabase session-pooler URI + `USE_MEMORY_DB=0` gives you
+the **same data in the browser and in the app, across restarts**.
+
+Quick checks (all read/write-safe, credentials never printed):
+
+```bash
+npm run db:status                                   # tables, RLS, row counts, newest rooms
+npm run verify:persistence -- create                # create a room via the API + assert the row is in PG
+npm run verify:persistence -- check <roomId>        # AFTER a restart: room is still there
+npm run verify:persistence -- cleanup <roomId>      # delete the test room
+```
+
+⚠️ Running dev against Postgres with the default `JWT_SECRET` fallback is a bad
+idea — set a real random `JWT_SECRET` in `.env`, because the dev server binds
+to the LAN and a public fallback secret would let anyone forge host tokens.
+
+### Account management (planned, not built)
+
+Users/orgs/auth tables are deliberately **not** part of this schema yet. When
+they land, just append them to `runMigrations()` — additive and idempotent by
+construction — and they inherit the RLS lockdown automatically via
+`ALTER DEFAULT PRIVILEGES` (see §4).
+
 ---
 
 ## 6. Backups

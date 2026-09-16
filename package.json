@@ -12,6 +12,8 @@
     "db:verify": "node scripts/verify-postgres.mjs",
     "db:verify:security": "node scripts/verify-db-security.mjs",
     "db:backup": "node scripts/db-backup.mjs",
+    "db:status": "node --env-file=.env scripts/db-status.mjs",
+    "verify:persistence": "node --env-file=.env scripts/verify-persistence.mjs",
     "verify:recording": "node scripts/verify-recording-egress.mjs"
   },
   "dependencies": {
