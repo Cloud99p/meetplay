@@ -47,3 +47,41 @@ export function clearSessionSnapshot(): void {
     /* ignore */
   }
 }
+
+// ─── Recap access ───────────────────────────────────────────────────────────
+//
+// The recap page needs a room token, but leaving/ending a meeting clears the
+// single global token slot (api.clearRoomToken) — and the navigation to
+// /recap/:roomId races that teardown, so ending a call sometimes landed on
+// "This recap requires an active meeting session" instead of the recap.
+//
+// Keeping a token per room, under its own key, makes the recap reachable
+// regardless of the order those two run in — and it lets a participant who has
+// already left still open the recap of the meeting they were in. It lives in
+// sessionStorage (dies with the tab) and is cleared when the user leaves the
+// recap, so it isn't a long-lived credential sitting in the browser.
+const RECAP_TOKEN_PREFIX = 'meetplay_recap_token:';
+
+export function saveRecapToken(roomId: string, token: string): void {
+  try {
+    sessionStorage.setItem(`${RECAP_TOKEN_PREFIX}${roomId}`, token);
+  } catch {
+    /* storage full/blocked — non-fatal */
+  }
+}
+
+export function getRecapToken(roomId: string): string | null {
+  try {
+    return sessionStorage.getItem(`${RECAP_TOKEN_PREFIX}${roomId}`);
+  } catch {
+    return null;
+  }
+}
+
+export function clearRecapToken(roomId: string): void {
+  try {
+    sessionStorage.removeItem(`${RECAP_TOKEN_PREFIX}${roomId}`);
+  } catch {
+    /* ignore */
+  }
+}

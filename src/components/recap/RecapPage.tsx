@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import * as api from '../../lib/api';
+import { getRecapToken, clearRecapToken } from '../../lib/session';
 import type { RecapData } from '../../lib/api';
 import {
   FiClock, FiMessageSquare, FiAward, FiUsers, FiChevronLeft,
@@ -29,6 +30,13 @@ export default function RecapPage({ roomId, onBack }: Props) {
   const [search, setSearch] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // Leaving the recap drops the stored token: it exists so the recap can open
+  // right after a meeting, not to keep room access lying around afterwards.
+  const handleBack = () => {
+    clearRecapToken(roomId);
+    onBack();
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -45,9 +53,14 @@ export default function RecapPage({ roomId, onBack }: Props) {
           setRecap(data);
           return;
         }
-        const token = api.getRoomToken();
+        // The global token slot is cleared when a meeting is left or ended, and
+        // this page can mount before that teardown finishes — so fall back to the
+        // token kept under this room's own key (see lib/session.ts).
+        const token = api.getRoomToken() ?? getRecapToken(roomId);
         if (!token) {
-          setError('This recap requires an active meeting session. Join the meeting to view it.');
+          setError(
+            'This recap is only available from the browser you joined with, or from a recap link the host shares.',
+          );
           setLoading(false);
           return;
         }
@@ -158,7 +171,7 @@ export default function RecapPage({ roomId, onBack }: Props) {
       <div className="min-h-screen bg-bg-base flex items-center justify-center">
         <div className="text-center space-y-3">
           <p className="text-destructive text-sm">{error || 'Recap not available'}</p>
-          <button onClick={onBack} className="text-primary text-sm underline cursor-pointer">Back to lobby</button>
+          <button onClick={handleBack} className="text-primary text-sm underline cursor-pointer">Back to lobby</button>
         </div>
       </div>
     );
@@ -176,7 +189,7 @@ export default function RecapPage({ roomId, onBack }: Props) {
         {/* Header */}
         <div className="flex items-center gap-3 print:hidden">
           <button
-            onClick={onBack}
+            onClick={handleBack}
             className="flex items-center gap-1.5 p-2 rounded-lg hover:bg-bg-elevated text-muted hover:text-foreground transition-colors cursor-pointer"
           >
             <FiChevronLeft className="w-5 h-5" />
@@ -516,7 +529,7 @@ export default function RecapPage({ roomId, onBack }: Props) {
         {/* Done — back to lobby */}
         <div className="pt-4 pb-8 print:hidden">
           <button
-            onClick={onBack}
+            onClick={handleBack}
             className="w-full py-3.5 bg-primary hover:bg-primary-hover text-on-primary font-heading font-semibold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2 text-sm"
           >
             <FiChevronLeft className="w-4 h-4" />

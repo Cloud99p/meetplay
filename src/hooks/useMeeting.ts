@@ -5,7 +5,7 @@ import type { LeaderboardEntry, RoomStateSnapshot, StartableGameType } from '../
 import type { ChatMessage } from '../types/chat';
 import * as api from '../lib/api';
 import { connectToLiveKitWithRetry, reconnectLiveKit } from '../lib/livekit';
-import { saveSessionSnapshot, clearSessionSnapshot, getSessionSnapshot } from '../lib/session';
+import { saveSessionSnapshot, clearSessionSnapshot, getSessionSnapshot, saveRecapToken } from '../lib/session';
 import { buildBingoCard } from '../lib/games/bingo';
 import { useWebSocket } from './useWebSocket';
 
@@ -664,6 +664,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       token: result.token,
       password,
     });
+    // Keep recap access under the room's own key: ending the call clears the
+    // global token slot, and the redirect to /recap races that teardown.
+    saveRecapToken(result.room.id, result.token);
 
     // Connect LiveKit
     if (result.livekitAvailable === false) {
@@ -730,6 +733,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       token: result.token,
       password,
     });
+    // Attendees need the recap too — see saveRecapToken in lib/session.ts.
+    saveRecapToken(result.room.id, result.token);
 
     // Fetch chat history
     try {
@@ -855,6 +860,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         token: result.token,
         password: snap.password,
       });
+      saveRecapToken(result.room.id, result.token);
       return true;
     } catch (e) {
       console.error('[meeting] resumeSession failed:', e);
