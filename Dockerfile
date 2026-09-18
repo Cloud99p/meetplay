@@ -12,7 +12,7 @@
 # Deploy: point your PaaS (Railway/Render/Fly) at this Dockerfile.
 # The server listens on $PORT (Railway injects it) at 0.0.0.0.
 
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 

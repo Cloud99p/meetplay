@@ -14,6 +14,20 @@
  *   PORT             (injected by the platform; default 3001)
  */
 
+/**
+ * Parse an env override that may legitimately be **0** ("close every session",
+ * "allow no sessions").
+ *
+ * `Number(v) || fallback` looks equivalent but is a trap: 0 is falsy, so a
+ * deliberate 0 silently becomes the default — a guard that can't be tightened.
+ * NaN and negatives fall back instead of coercing to something surprising.
+ */
+function envCount(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
 export interface ServerConfig {
   livekitUrl: string;
   livekitApiKey: string;
@@ -23,6 +37,13 @@ export interface ServerConfig {
   deepgramApiKey: string;
   deepgramModel: string;
   deepgramLanguage: string;
+  /** Global kill switch for the Deepgram relay (STT_ENABLED=0). */
+  sttEnabled: boolean;
+  /** Hard caps for a single caption session — abuse/cost backstops, not metering. */
+  sttMaxSessionSeconds: number;
+  sttMaxAudioBytes: number;
+  sttMaxConcurrent: number;
+  sttMaxPerIp: number;
   databaseUrl?: string;
   useMemoryDb: boolean;
   rateLimitMax: number;
@@ -120,6 +141,19 @@ export function loadConfig(): ServerConfig {
     // noticeably improve word accuracy for accented speech. Default 'en'
     // (generic) unless DEEPGRAM_LANGUAGE is set.
     deepgramLanguage: env.DEEPGRAM_LANGUAGE?.trim() ?? 'en',
+    // ── Caption relay guards ──────────────────────────────────────────────
+    // /api/stt is a credentialed Deepgram relay: anyone who can reach the URL
+    // can spend the project's credits. These caps are backstops, not metering —
+    // a tutorial is ≤45 min and a room is a handful of people, so the defaults
+    // sit far above real use and only catch a runaway room or an outsider.
+    // `|| default` also swallows a non-numeric env value.
+    sttEnabled: env.STT_ENABLED !== '0',
+    sttMaxSessionSeconds: envCount(env.STT_MAX_SESSION_SECONDS, 5400), // 90 min
+    sttMaxAudioBytes: envCount(env.STT_MAX_AUDIO_BYTES, 209715200), // 200 MB (~1.7 h of PCM16)
+    sttMaxConcurrent: envCount(env.STT_MAX_CONCURRENT, 60),
+    // A classroom on one wifi/NAT shares an IP, so this stays generous:
+    // 6 students on one network is 6 sessions from one address.
+    sttMaxPerIp: envCount(env.STT_MAX_PER_IP, 30),
     databaseUrl: env.DATABASE_URL?.trim() || undefined,
     useMemoryDb: !env.DATABASE_URL || env.USE_MEMORY_DB === '1',
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 120),

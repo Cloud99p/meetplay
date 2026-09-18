@@ -24,19 +24,83 @@ import { loadConfig } from '../config.js';
  * - Messages from the client before the upstream socket opens are buffered
  *   and flushed on open (avoids the Configure race).
  */
+// ── Abuse + cost guards ─────────────────────────────────────────────────────
+// /api/stt proxies a credentialed Deepgram session and deliberately requires no
+// account (students must not have to log in to be captioned) — which also means
+// anyone who can reach the URL can spend the project's credits. These counters
+// are the cheapest possible defence: caps on concurrent sessions, wall-clock and
+// bytes, plus a global kill switch that needs no deploy (STT_ENABLED=0).
+let activeSessions = 0;
+const sessionsByIp = new Map<string, number>();
+
 export async function sttRoutes(app: FastifyInstance) {
-  app.get('/api/stt', { websocket: true }, (socket) => {
+  app.get('/api/stt', { websocket: true }, (socket, req) => {
     const cfg = loadConfig();
-    if (!cfg.deepgramApiKey) {
-      socket.send(JSON.stringify({ type: 'Error', message: 'Deepgram is not configured on the server (missing DEEPGRAM_API_KEY).' }));
-      socket.close();
+
+    // Reason codes are mirrored in the browser adapter, which stops reconnecting
+    // on 1008/1013 — otherwise a capped client just hammers the door.
+    const refuse = (code: string, message: string, closeCode: number, reason: string) => {
+      try {
+        socket.send(JSON.stringify({ type: 'Error', code, message }));
+      } catch {
+        /* socket already gone */
+      }
+      socket.close(closeCode, reason);
+    };
+
+    if (!cfg.sttEnabled) {
+      console.warn('[stt] refused: caption relay disabled by STT_ENABLED=0');
+      refuse('STT_DISABLED', 'Live captions are temporarily unavailable.', 1013, 'captions disabled');
       return;
     }
+
+    if (!cfg.deepgramApiKey) {
+      refuse(
+        'STT_UNCONFIGURED',
+        'Deepgram is not configured on the server (missing DEEPGRAM_API_KEY).',
+        1013,
+        'not configured',
+      );
+      return;
+    }
+
+    // Caps are counted before any upstream connection is opened.
+    const ip = req?.ip ?? 'unknown';
+    if (activeSessions >= cfg.sttMaxConcurrent) {
+      console.warn(`[stt] refused: ${activeSessions} sessions already open (STT_MAX_CONCURRENT)`);
+      refuse('STT_BUSY', 'Captions are at capacity right now — try again in a moment.', 1013, 'busy');
+      return;
+    }
+    const forIp = sessionsByIp.get(ip) ?? 0;
+    if (forIp >= cfg.sttMaxPerIp) {
+      console.warn(`[stt] refused: ${forIp} sessions from ${ip} (STT_MAX_PER_IP)`);
+      refuse('STT_IP_LIMIT', 'Too many caption sessions from this network.', 1013, 'too many sessions');
+      return;
+    }
+    activeSessions++;
+    sessionsByIp.set(ip, forIp + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeSessions = Math.max(0, activeSessions - 1);
+      const n = (sessionsByIp.get(ip) ?? 1) - 1;
+      if (n <= 0) sessionsByIp.delete(ip);
+      else sessionsByIp.set(ip, n);
+    };
+    socket.on('close', release);
 
     const model = cfg.deepgramModel;
     const isFlux = model.startsWith('flux');
     const connId = Math.random().toString(36).slice(2, 8);
-    console.log(`[stt:${connId}] client connected (model=${model})`);
+    console.log(`[stt:${connId}] client connected (model=${model}, sessions=${activeSessions})`);
+
+    // Wall-clock cap: a runaway tab or a forgotten room must not transcribe for
+    // ever. Far above real use (a tutorial is ≤45 min), so it only catches abuse.
+    const sessionTimer = setTimeout(() => {
+      console.warn(`[stt:${connId}] session limit reached (${cfg.sttMaxSessionSeconds}s) — closing`);
+      refuse('STT_SESSION_LIMIT', 'Caption session reached its time limit.', 1008, 'session limit');
+    }, cfg.sttMaxSessionSeconds * 1000);
 
     const params = new URLSearchParams({
       model,
@@ -300,6 +364,11 @@ export async function sttRoutes(app: FastifyInstance) {
       }
       const buf = data as Buffer;
       audioBytes += buf.byteLength;
+      if (audioBytes > cfg.sttMaxAudioBytes) {
+        console.warn(`[stt:${connId}] audio cap reached (${audioBytes} bytes) — closing`);
+        refuse('STT_SESSION_LIMIT', 'Caption session reached its size limit.', 1008, 'session limit');
+        return;
+      }
       if (upstreamOpen && upstream.readyState === WebSocket.OPEN) {
         upstream.send(buf);
       } else {
@@ -316,6 +385,7 @@ export async function sttRoutes(app: FastifyInstance) {
     });
 
     socket.on('close', () => {
+      clearTimeout(sessionTimer);
       console.log(`[stt:${connId}] client closed (audioBytes=${audioBytes}, results=${resultsCount})`);
       if (upstreamKeepalive) clearInterval(upstreamKeepalive);
       clearInterval(clientKeepalive);

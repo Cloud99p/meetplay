@@ -14,6 +14,26 @@ import { runMigrations } from './db/migrate.js';
 import { startRoomCleanup } from './cleanup.js';
 
 const app = Fastify({ logger: true });
+
+// Security headers on every response.
+//
+// No CSP yet, deliberately: the SPA talks to LiveKit over wss, plays media from
+// blob: URLs and uses inline styles, so a strict policy has to be built and
+// verified against a real session or it breaks the app in ways only the browser
+// shows. The headers below are unconditional wins and cost nothing.
+//
+// Permissions-Policy keeps camera/mic/screen-share for ourselves (the product
+// needs them) and switches off everything the app never asks for.
+app.addHook('onSend', async (_req, reply) => {
+  reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  reply.header(
+    'Permissions-Policy',
+    'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
+  );
+});
 const USE_MEMORY = !process.env.DATABASE_URL || process.env.USE_MEMORY_DB === '1';
 
 if (!USE_MEMORY) {

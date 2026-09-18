@@ -185,8 +185,24 @@ export class DeepgramAdapter implements STTAdapter {
       console.warn('[DeepgramAdapter] socket error:', err);
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (ev) => {
       this.teardownMedia();
+      // Policy closes (see the server's refusal reasons in routes/stt.ts):
+      //   1013 = capacity / captions disabled server-side,
+      //   1008 = session or size limit reached.
+      // Reconnecting on these just spins against a server that will refuse
+      // again, so stop and tell the user instead of burning their battery.
+      if (ev?.code === 1013 || ev?.code === 1008) {
+        console.warn(
+          `[DeepgramAdapter] server ended captions (${ev.code}${ev.reason ? `: ${ev.reason}` : ''}) — not reconnecting`,
+        );
+        this.onError?.(
+          ev.code === 1008
+            ? 'Captions stopped: this session reached its limit.'
+            : 'Captions are unavailable right now — reload later to try again.',
+        );
+        return;
+      }
       if (!this.stopped) this.scheduleReconnect();
     };
   }

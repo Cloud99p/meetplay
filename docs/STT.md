@@ -40,6 +40,34 @@ attributes, stores and feeds to the games engine.
    protocol-level complaints about our own messages are logged server-side
    instead of being relayed. Locked by `npm run verify:stt`.
 
+## Abuse & cost guards
+
+`/api/stt` is a credentialed Deepgram relay that deliberately requires **no**
+account — students must not have to log in to be captioned — which also means
+anyone who can reach the URL can spend the project's credits. The guards below
+are backstops, not metering: their defaults sit far above real use and only catch
+a runaway room or an outsider.
+
+| Env var | Default | Effect |
+|---|---|---|
+| `STT_ENABLED` | `1` | `0` refuses every new session — the kill switch, no deploy needed |
+| `STT_MAX_SESSION_SECONDS` | `5400` (90 min) | wall-clock cap per session |
+| `STT_MAX_AUDIO_BYTES` | `209715200` (200 MB ≈ 1.7 h of PCM16) | byte cap per session |
+| `STT_MAX_CONCURRENT` | `60` | total open caption sessions |
+| `STT_MAX_PER_IP` | `30` | sessions from one address (a classroom shares one NAT) |
+
+Refusals are always explained before closing — the client shows the message and
+**stops reconnecting** on those codes, because retrying against a server that
+will refuse again just burns the user's battery:
+
+| Close | Code sent | Meaning |
+|---|---|---|
+| 1013 | `STT_DISABLED` / `STT_BUSY` / `STT_IP_LIMIT` / `STT_UNCONFIGURED` | try again later |
+| 1008 | `STT_SESSION_LIMIT` | this session hit its time or size limit |
+
+Locked by `npm run verify:stt:guards` (boots the real server with each cap set
+tight and drives it over a real WebSocket).
+
 ## Verification
 
 ```bash
