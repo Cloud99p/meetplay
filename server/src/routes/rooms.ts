@@ -12,6 +12,7 @@ import {
   promoteToHost,
 } from '../db/queries.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
+import { isUuid } from '../utils/ids.js';
 import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
 import {
   checkPasswordAttempt,
@@ -76,6 +77,9 @@ export async function roomsRoutes(app: FastifyInstance) {
   // Get room info (for join page)
   app.get('/api/rooms/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const room = await getRoomById(id);
     if (!room) return reply.code(404).send({ error: 'Room not found' });
     const participants = await getParticipantsByRoom(id);
@@ -94,6 +98,9 @@ export async function roomsRoutes(app: FastifyInstance) {
   // Join a room
   app.post('/api/rooms/:id/join', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const body = (req.body ?? {}) as {
       name?: string;
       participantName?: string;
@@ -232,6 +239,9 @@ export async function roomsRoutes(app: FastifyInstance) {
   // guesses a room UUID (privacy hard requirement).
   app.get('/api/rooms/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const payload = auth ? verifyRoomToken(auth) : null;
     if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
@@ -246,6 +256,9 @@ export async function roomsRoutes(app: FastifyInstance) {
   // Mint a LiveKit join token (requires room token)
   app.post('/api/rooms/:id/livekit-token', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
 
     const payload = auth ? verifyRoomToken(auth) : null;
@@ -266,6 +279,9 @@ export async function roomsRoutes(app: FastifyInstance) {
   // End meeting (host only)
   app.post('/api/rooms/:id/end', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const payload = auth ? verifyRoomToken(auth) : null;
     if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
@@ -289,6 +305,9 @@ export async function roomsRoutes(app: FastifyInstance) {
   // Toggle transcription (host only)
   app.post('/api/rooms/:id/transcript/toggle', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const body = (req.body ?? {}) as { enabled?: boolean };
     const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const payload = auth ? verifyRoomToken(auth) : null;

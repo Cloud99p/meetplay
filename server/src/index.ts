@@ -71,6 +71,30 @@ await app.register(rateLimit, {
 
 app.get('/health', async () => ({ ok: true, service: 'meetplay-server' }));
 
+// Error handler: never leak internals to the caller.
+//
+// Found by an audit probe: a malformed room id reached Postgres and the raw driver
+// error came straight back to the client —
+//   {"statusCode":500,"code":"22P02","message":"invalid input syntax for type uuid: \"not-a-uuid\""}
+// That is a 500 on an UNAUTHENTICATED endpoint, and it hands an attacker error
+// codes and type names. Bad input is a client mistake, so it answers 400; anything
+// unexpected answers a flat 500 while the detail stays in the server log.
+app.setErrorHandler((err: unknown, req, reply) => {
+  const e = err as { code?: string; statusCode?: number; message?: string };
+  const status = e.statusCode ?? 500;
+
+  if (e.code === '22P02') {
+    // invalid input syntax (bad uuid / malformed value). See utils/ids.ts.
+    req.log.warn({ err }, 'malformed input reached the database');
+    return reply.code(400).send({ error: 'Malformed request' });
+  }
+  if (status >= 400 && status < 500) {
+    return reply.code(status).send({ error: e.message ?? 'Request failed' });
+  }
+  req.log.error({ err }, 'unhandled error');
+  return reply.code(500).send({ error: 'Internal Server Error' });
+});
+
 // Apply schema migrations automatically at startup (idempotent, Postgres only).
 // Retries briefly so a slowly-starting Docker/RAILWAY DB doesn't leave the
 // schema un-migrated; the server still boots if the DB is unreachable.

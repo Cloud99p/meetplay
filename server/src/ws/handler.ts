@@ -606,19 +606,9 @@ async function handleMessage(
   }
 }
 
-/**
- * UUID shape check for ids that arrive from clients or message payloads.
- *
- * The in-memory store accepts any string key, so a synthetic speaker id like
- * 'local' (WebSpeech) or 'speaker-0' (Deepgram diarization) silently works in
- * dev — and then Postgres rejects it with `invalid input syntax for type uuid`
- * the moment the app runs on the real database. Anything client-supplied that
- * becomes a query parameter goes through here first.
- */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isUuid(value: unknown): value is string {
-  return typeof value === 'string' && UUID_RE.test(value);
-}
+// One source of truth for "is this a UUID?": the same check guards route params
+// (utils/ids.ts) and message payload ids here, so the two can't drift.
+import { isUuid } from '../utils/ids.js';
 
 async function checkIsHost(roomId: string, participantId: string): Promise<boolean> {
   if (!isUuid(participantId)) return false;

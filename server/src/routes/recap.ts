@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { isUuid } from '../utils/ids.js';
 import { getRecap } from '../db/queries.js';
 import { verifyRoomToken, generateRecapShareToken, verifyRecapShareToken } from '../utils/jwt.js';
 import { omniClient } from '../intelligence/omniClient.js';
@@ -17,6 +18,9 @@ export async function recapRoutes(app: FastifyInstance) {
   //      anything other than this one recap.
   app.get('/api/rooms/:id/recap', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const share = (req.query as { share?: string }).share;
 
@@ -64,6 +68,9 @@ export async function recapRoutes(app: FastifyInstance) {
   // open door to the transcript forever.
   app.get('/api/rooms/:id/recap/share', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+    // which surfaced as a 500 on an unauthenticated endpoint.
+    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
     const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const payload = auth ? verifyRoomToken(auth) : null;
     if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
