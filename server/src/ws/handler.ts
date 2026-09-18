@@ -40,7 +40,16 @@ const hostTimers = new Map<string, { hostId: string; timer: NodeJS.Timeout }>();
 // Track active connections per room: roomId -> Set<participantId>
 const activeConnections = new Map<string, Set<string>>();
 
-const HOST_PROMOTION_TIMEOUT_MS = 60_000;
+// Grace period before an interim host is appointed while the owner is away.
+// Env-configurable so tests don't have to wait a minute (and so a deployment can
+// tune it without a code change). Explicit `0` is honoured — unlike
+// `Number(v) || default`, which would silently fall back to 60s.
+const HOST_PROMOTION_TIMEOUT_MS = (() => {
+  const raw = process.env.HOST_PROMOTION_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === '') return 60_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 60_000;
+})();
 
 function registerConnection(roomId: string, participantId: string) {
   let set = activeConnections.get(roomId);
@@ -142,12 +151,15 @@ function scheduleHostPromotion(roomId: string, hostId: string) {
       );
       if (!candidate) return;
 
-      await promoteToHost(candidate.id);
+      await promoteToHost(candidate.id, { claimOwnership: false });
       channelManager.broadcast(roomId, {
         type: 'host:promoted',
         payload: { participantId: candidate.id },
       });
-      console.log(`[ws:${roomId}] Host promoted to ${candidate.id}`);
+      console.log(
+        `[ws:${roomId}] interim host: ${candidate.id} holds host powers while the owner ` +
+          `(${hostId}) is away — ownership stays with the owner, who reclaims on rejoin`,
+      );
     } catch (e) {
       console.error(`[ws:${roomId}] host promotion error:`, e);
     }
@@ -195,6 +207,14 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
   // If this participant is the host and there's a pending promotion timer, cancel it
   if (participant.is_host) {
     cancelHostPromotion(roomId, participantId);
+    // Announce current host powers to the room. The owner rejoining after an
+    // interim promotion lands here (their powers were restored during the HTTP
+    // join), and without this broadcast the interim host would keep showing
+    // themselves as host and keep the host-only controls.
+    channelManager.broadcast(roomId, {
+      type: 'host:promoted',
+      payload: { participantId },
+    });
   }
 
   // Inbound listener FIRST. The socket is open as soon as we await anything

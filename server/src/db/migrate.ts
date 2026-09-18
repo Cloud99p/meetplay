@@ -125,6 +125,17 @@ const MIGRATIONS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_room_recordings_room ON room_recordings(room_id)`,
 
+  // 2026-09-18 — DURABLE ROOM OWNERSHIP (host-rights bug).
+  //
+  // host_participant_id is a participant ROW id, and promoteToHost() used to
+  // overwrite it whenever an interim host was appointed after the owner dropped.
+  // That erased the owner's claim: on rejoin the "host heal" in routes/rooms.ts
+  // compares host_participant_id against the returning row, found the interim
+  // host's id, and never restored host powers — the owner was demoted for the
+  // life of the room. host_user_id is the stable client identity (localStorage),
+  // so the owner can be recognised regardless of which row they come back on.
+  `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS host_user_id TEXT`,
+
   // 2026-09-16 — FIX DELETES BLOCKED BY PARTICIPANT FKs (production bug).
   //
   // chat_messages.participant_id, transcript_events.participant_id and

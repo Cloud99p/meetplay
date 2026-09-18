@@ -10,6 +10,8 @@ interface RoomRow {
   name: string | null;
   password_hash: string | null;
   host_participant_id: string | null;
+  /** Stable client identity of the room's owner (survives row churn). */
+  host_user_id: string | null;
   transcription_enabled: boolean;
   state: 'active' | 'locked' | 'ended';
   created_at: Date | string;
@@ -66,10 +68,10 @@ function toISO(value: Date | string | null): string | null {
 
 // ─── Rooms ────────────────────────────────────────────
 
-export async function createRoom(opts: { name?: string; passwordHash?: string }) {
+export async function createRoom(opts: { name?: string; passwordHash?: string; hostUserId?: string }) {
   const { rows } = await pool.query(
-    `INSERT INTO rooms (name, password_hash) VALUES ($1, $2) RETURNING *`,
-    [opts.name ?? null, opts.passwordHash ?? null]
+    `INSERT INTO rooms (name, password_hash, host_user_id) VALUES ($1, $2, $3) RETURNING *`,
+    [opts.name ?? null, opts.passwordHash ?? null, opts.hostUserId ?? null]
   );
   return rows[0];
 }
@@ -91,10 +93,12 @@ export async function updateRoom(id: string, updates: Record<string, unknown>) {
   return rows[0];
 }
 
-export async function setRoomHost(roomId: string, participantId: string) {
+export async function setRoomHost(roomId: string, participantId: string, hostUserId?: string | null) {
   const { rows } = await pool.query(
-    `UPDATE rooms SET host_participant_id = $2 WHERE id = $1 RETURNING *`,
-    [roomId, participantId]
+    hostUserId === undefined
+      ? `UPDATE rooms SET host_participant_id = $2 WHERE id = $1 RETURNING *`
+      : `UPDATE rooms SET host_participant_id = $2, host_user_id = COALESCE($3, host_user_id) WHERE id = $1 RETURNING *`,
+    hostUserId === undefined ? [roomId, participantId] : [roomId, participantId, hostUserId]
   );
   return rows[0];
 }
@@ -141,7 +145,10 @@ export async function removeParticipant(id: string) {
   await pool.query(`DELETE FROM participants WHERE id = $1`, [id]);
 }
 
-export async function promoteToHost(participantId: string) {
+export async function promoteToHost(
+  participantId: string,
+  opts: { claimOwnership?: boolean } = {}
+) {
   // First reset all hosts in the room
   const participant = await getParticipantById(participantId);
   if (!participant) return null;
@@ -154,7 +161,12 @@ export async function promoteToHost(participantId: string) {
     `UPDATE participants SET is_host = true WHERE id = $1 RETURNING *`,
     [participantId]
   );
-  await setRoomHost(participant.room_id, participantId);
+  // An INTERIM host (appointed because the owner dropped) must not claim
+  // ownership: host_participant_id keeps pointing at the owner so they are
+  // recognised — and restored — when they come back.
+  if (opts.claimOwnership !== false) {
+    await setRoomHost(participant.room_id, participantId);
+  }
   return rows[0];
 }
 

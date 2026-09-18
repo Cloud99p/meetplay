@@ -35,7 +35,7 @@ export async function roomsRoutes(app: FastifyInstance) {
     const password = typeof body.password === 'string' ? body.password : undefined;
 
     const passwordHash = password ? await hashPassword(password) : undefined;
-    const room = await createRoom({ name, passwordHash });
+    const room = await createRoom({ name, passwordHash, hostUserId: body.userId });
     const livekitHealth = await probeLiveKit();
 
     // Host joins automatically at creation
@@ -45,7 +45,7 @@ export async function roomsRoutes(app: FastifyInstance) {
       isHost: true,
       userId: body.userId,
     });
-    await setRoomHost(room.id, host.id);
+    await setRoomHost(room.id, host.id, body.userId);
 
     const token = generateRoomToken({
       roomId: room.id,
@@ -159,18 +159,6 @@ export async function roomsRoutes(app: FastifyInstance) {
         // Keep the existing name (the user may have changed it on the form;
         // but their original identity is what other participants know them by)
         name = participant.name;
-        // HOST HEAL: if this row is the room's designated host but the is_host
-        // flag drifted to false (e.g. a promotion race picked a stale row and
-        // demoted the real host), re-assert host powers on rejoin. promoteToHost
-        // demotes everyone else and points the room back at this row.
-        const roomRow = await getRoomById(id);
-        if (roomRow?.host_participant_id === participant.id && !participant.is_host) {
-          try {
-            participant = (await promoteToHost(participant.id)) ?? participant;
-          } catch {
-            /* ignore */
-          }
-        }
       }
     }
     if (!participant) {
@@ -180,6 +168,33 @@ export async function roomsRoutes(app: FastifyInstance) {
         isHost: false,
         userId: body.userId,
       });
+    }
+
+    // OWNER RECOGNITION (host-rights bug).
+    //
+    // host_participant_id is a participant ROW id, so it can't survive the owner
+    // coming back on a different row — and an interim host appointed while they
+    // were away used to overwrite it entirely. host_user_id is the durable claim
+    // (the browser's stable localStorage id), so recognise the owner by that and
+    // re-assert host powers: promoteToHost demotes whoever holds the interim
+    // flag, and setRoomHost points the room back at the owner's current row.
+    // Runs after the row is resolved or created, so it covers both paths.
+    if (body.userId) {
+      const roomRow = await getRoomById(id);
+      const isOwner =
+        roomRow?.host_user_id === body.userId ||
+        (!!roomRow?.host_participant_id && roomRow.host_participant_id === participant.id);
+      if (isOwner && !participant.is_host) {
+        try {
+          participant = (await promoteToHost(participant.id)) ?? participant;
+          await setRoomHost(id, participant.id, body.userId);
+          console.log(
+            `[rooms:${id}] owner rejoined — host powers restored to ${participant.id}`,
+          );
+        } catch (e) {
+          console.error(`[rooms:${id}] owner host restore failed:`, e);
+        }
+      }
     }
 
     const token = generateRoomToken({

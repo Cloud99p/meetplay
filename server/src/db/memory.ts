@@ -8,6 +8,8 @@ export interface RoomRow {
   name: string | null;
   password_hash: string | null;
   host_participant_id: string | null;
+  /** Stable client identity of the room's owner (survives row churn). */
+  host_user_id: string | null;
   transcription_enabled: boolean;
   state: 'active' | 'locked' | 'ended';
   created_at: string;
@@ -94,13 +96,14 @@ function nowISO(): string {
 
 // ─── Rooms ──────────────────────────────────────────────────
 
-export async function createRoom(opts: { name?: string; passwordHash?: string }) {
+export async function createRoom(opts: { name?: string; passwordHash?: string; hostUserId?: string }) {
   const id = uuid();
   const row: RoomRow = {
     id,
     name: opts.name ?? null,
     password_hash: opts.passwordHash ?? null,
     host_participant_id: null,
+    host_user_id: opts.hostUserId ?? null,
     transcription_enabled: true,
     state: 'active',
     created_at: nowISO(),
@@ -123,10 +126,11 @@ export async function updateRoom(id: string, updates: Record<string, unknown>) {
   return row;
 }
 
-export async function setRoomHost(roomId: string, participantId: string) {
+export async function setRoomHost(roomId: string, participantId: string, hostUserId?: string | null) {
   const row = store.rooms.get(roomId);
   if (!row) return;
   row.host_participant_id = participantId;
+  if (hostUserId) row.host_user_id = hostUserId;
   return row;
 }
 
@@ -191,7 +195,10 @@ export async function removeParticipant(id: string) {
   }
 }
 
-export async function promoteToHost(participantId: string) {
+export async function promoteToHost(
+  participantId: string,
+  opts: { claimOwnership?: boolean } = {}
+) {
   const participant = await getParticipantById(participantId);
   if (!participant) return null;
 
@@ -204,7 +211,12 @@ export async function promoteToHost(participantId: string) {
 
   // Promote the new host
   participant.is_host = true;
-  await setRoomHost(participant.room_id, participantId);
+  // An INTERIM host (appointed because the owner dropped) must not claim
+  // ownership: host_participant_id keeps pointing at the owner so they are
+  // recognised — and restored — when they come back.
+  if (opts.claimOwnership !== false) {
+    await setRoomHost(participant.room_id, participantId);
+  }
   return participant;
 }
 
