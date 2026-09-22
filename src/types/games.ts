@@ -37,6 +37,8 @@ export interface RoomStateSnapshot {
     isHost: boolean;
     isMuted: boolean;
     isCameraOff: boolean;
+    /** Hand raised right now (server-tracked, so a resync cannot drop it). */
+    handRaised: boolean;
   }>;
   transcriptionEnabled: boolean;
   roomState: 'active' | 'locked' | 'ended';

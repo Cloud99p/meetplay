@@ -1,4 +1,5 @@
 import { FiVolume2, FiVolumeX, FiVideo, FiVideoOff, FiUserMinus, FiShield } from 'react-icons/fi';
+import { LuHand } from 'react-icons/lu';
 
 interface Participant {
   id: string;
@@ -6,6 +7,7 @@ interface Participant {
   isHost: boolean;
   isMuted: boolean;
   isCameraOff: boolean;
+  handRaised?: boolean;
 }
 
 interface Props {
@@ -39,6 +41,9 @@ export default function ParticipantList({ participants, isHost, currentId, onMut
                   )}
                   {isMe && (
                     <span className="text-[10px] text-muted">(you)</span>
+                  )}
+                  {p.handRaised && (
+                    <LuHand className="w-3 h-3 text-secondary flex-shrink-0" title="Hand raised" />
                   )}
                   {p.isMuted && (
                     <FiVolumeX className="w-3 h-3 text-muted flex-shrink-0" title="Muted by host" />

@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LuHand } from 'react-icons/lu';
 import { VideoTrack, useTracks, useRemoteParticipants, useLocalParticipant, type TrackReference } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 
 interface Props {
   onSpeakerClick?: (participantId: string) => void;
+  /** Participant ids whose hand is currently raised (badge on their tile). */
+  raisedIds?: string[];
   className?: string;
 }
 
-export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
+export default function VideoGrid({ onSpeakerClick, raisedIds = [], className = '' }: Props) {
   const remoteParticipants = useRemoteParticipants();
   const { localParticipant } = useLocalParticipant();
   const cameraTracks = useTracks([Track.Source.Camera]);
@@ -93,6 +96,7 @@ export default function VideoGrid({ onSpeakerClick, className = '' }: Props) {
           isLocal={tile.isLocal}
           name={tile.name}
           trackRef={trackByParticipant.get(tile.participantId)}
+          raised={raisedIds.includes(tile.participantId)}
           onClick={() => onSpeakerClick?.(tile.participantId)}
         />
       ))}
@@ -128,11 +132,13 @@ function VideoTile({
   isLocal,
   name,
   trackRef,
+  raised = false,
   onClick,
 }: {
   isLocal: boolean;
   name: string;
   trackRef?: TrackReference;
+  raised?: boolean;
   onClick: () => void;
 }) {
   // When the camera is off (or mid-switch) LiveKit keeps the track around
@@ -155,6 +161,12 @@ function VideoTile({
               {name.charAt(0).toUpperCase()}
             </span>
           </div>
+        </div>
+      )}
+      {raised && (
+        <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-secondary/90 text-on-secondary">
+          <LuHand className="w-3 h-3" />
+          <span className="text-[10px] font-semibold">Raised</span>
         </div>
       )}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">

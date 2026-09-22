@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { VideoTrack, useTracks, useRemoteParticipants, type TrackReference } from '@livekit/components-react';
+import { VideoTrack, useTracks, useRemoteParticipants, useLocalParticipant, type TrackReference } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 
 interface Props {
@@ -9,6 +9,8 @@ interface Props {
 
 export default function SpeakerView({ activeSpeakerId, className = '' }: Props) {
   const remoteParticipants = useRemoteParticipants();
+  const { localParticipant } = useLocalParticipant();
+  const localId = localParticipant?.identity ?? null;
   const cameraTracks = useTracks([Track.Source.Camera]);
   const screenTracks = useTracks([Track.Source.ScreenShare, Track.Source.ScreenShareAudio]);
 
@@ -41,11 +43,17 @@ export default function SpeakerView({ activeSpeakerId, className = '' }: Props) 
     return map;
   }, [screenTracks]);
 
-  const activeParticipant = activeSpeakerId
+  // Look the clicked id up among EVERYONE, including yourself. The old lookup only
+  // searched remote participants, so clicking your own tile found nothing and fell
+  // through to remoteParticipants[0] — i.e. someone else's video took the stage.
+  const isLocalSpeaker = Boolean(activeSpeakerId && localId && activeSpeakerId === localId);
+  const activeParticipant = activeSpeakerId && !isLocalSpeaker
     ? remoteParticipants.find((p) => p.identity === activeSpeakerId)
     : null;
 
-  const speaker = activeParticipant || remoteParticipants[0];
+  const speaker = isLocalSpeaker
+    ? { identity: localId as string, name: 'You' }
+    : activeParticipant || remoteParticipants[0];
   const speakerTrack = speaker ? trackByParticipant.get(speaker.identity) : undefined;
 
   // Screen share takes over the main stage when someone presents
@@ -56,7 +64,14 @@ export default function SpeakerView({ activeSpeakerId, className = '' }: Props) 
     activeShareEntry?.[0] ??
     '';
 
-  const strip = remoteParticipants.filter((p) => p.identity !== speaker?.identity);
+  // The filmstrip shows the other people in the call — plus you, unless you are the
+  // one on the main stage.
+  const strip = [
+    ...(localId && localId !== speaker?.identity
+      ? [{ identity: localId, name: 'You' }]
+      : []),
+    ...remoteParticipants.filter((p) => p.identity !== speaker?.identity),
+  ];
 
   return (
     <div className={`flex flex-col h-full gap-2 ${className}`}>

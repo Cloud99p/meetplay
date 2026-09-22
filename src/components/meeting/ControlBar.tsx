@@ -37,6 +37,8 @@ interface Props {
   onToggleParticipants?: () => void;
   onToggleTranscription?: (enabled?: boolean) => void;
   onRaiseHand?: () => void;
+  /** True while MY hand is up, so the button can show it is latched. */
+  handRaised?: boolean;
   onSendEmoji?: (emoji: string) => void;
   onLeave?: () => void;
   showChat: boolean;
@@ -58,6 +60,7 @@ export default function ControlBar({
   onToggleParticipants,
   onToggleTranscription,
   onRaiseHand,
+  handRaised = false,
   onSendEmoji,
   onLeave,
   showChat,
@@ -102,8 +105,12 @@ export default function ControlBar({
       )}
 
       {/* Raise hand */}
-      <button onClick={onRaiseHand} className={btnClass} title="Raise hand">
-        <LuHand className="w-4 h-4" />
+      <button
+          onClick={onRaiseHand}
+          className={`${btnClass} ${handRaised ? 'bg-secondary/20 text-secondary' : ''}`}
+          title={handRaised ? 'Lower hand' : 'Raise hand'}
+        >
+          <LuHand className="w-4 h-4" />
       </button>
 
       {/* Emoji quick reaction */}

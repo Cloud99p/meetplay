@@ -11,7 +11,7 @@ import { useWebSocket } from './useWebSocket';
 
 export interface MeetingState {
   room: Room | null;
-  participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
+  participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean; handRaised: boolean }>;
   isHost: boolean;
   participantId: string | null;
   participantName: string | null;
@@ -159,7 +159,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('participant:joined', (payload: { id: string; name: string }) => {
         setParticipants((prev) => {
           if (prev.some((p) => p.id === payload.id)) return prev;
-          return [...prev, { id: payload.id, name: payload.name, isHost: false, isMuted: false, isCameraOff: false }];
+          return [...prev, { id: payload.id, name: payload.name, isHost: false, isMuted: false, isCameraOff: false, handRaised: false }];
         });
       })
     );
@@ -655,7 +655,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     setParticipantName(result.participant.name || 'Host');
     setIsHost(true);
     setLivekitUrl(result.livekitUrl);
-    setParticipants([{ id: result.participant.id, name: result.participant.name || 'Host', isHost: true, isMuted: false, isCameraOff: false }]);
+    setParticipants([{ id: result.participant.id, name: result.participant.name || 'Host', isHost: true, isMuted: false, isCameraOff: false, handRaised: false }]);
 
     // Connect WebSocket
     ws.connect(result.room.id, result.participant.id, result.token);
@@ -724,7 +724,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     setParticipantName(result.participant.name);
     setIsHost(false);
     setLivekitUrl(result.livekitUrl);
-    setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: false, isMuted: false, isCameraOff: false }]);
+    setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: false, isMuted: false, isCameraOff: false, handRaised: false }]);
 
     // Connect WebSocket
     ws.connect(result.room.id, result.participant.id, result.token);
@@ -807,7 +807,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       setParticipantName(result.participant.name);
       setIsHost(snap.isHost); // restore host status (WS room:state also syncs it)
       setLivekitUrl(result.livekitUrl);
-      setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: snap.isHost, isMuted: false, isCameraOff: false }]);
+      setParticipants([{ id: result.participant.id, name: result.participant.name, isHost: snap.isHost, isMuted: false, isCameraOff: false, handRaised: false }]);
 
       ws.connect(result.room.id, result.participant.id, result.token);
 
@@ -1080,6 +1080,26 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     });
     return off;
   }, [ws]);
+  // Raise/lower hand. The server has always broadcast hand:raised / hand:lowered;
+  // nothing on the client listened for them, so the button looked completely dead
+  // (no badge, no list entry, no way to put the hand back down).
+  useEffect(() => {
+    const offRaised = ws.on('hand:raised', (payload: { participantId: string }) => {
+      setParticipants((prev) =>
+        prev.map((p) => (p.id === payload.participantId ? { ...p, handRaised: true } : p)),
+      );
+    });
+    const offLowered = ws.on('hand:lowered', (payload: { participantId: string }) => {
+      setParticipants((prev) =>
+        prev.map((p) => (p.id === payload.participantId ? { ...p, handRaised: false } : p)),
+      );
+    });
+    return () => {
+      offRaised();
+      offLowered();
+    };
+  }, [ws]);
+
   const state: MeetingState = {
     room,
     participants,

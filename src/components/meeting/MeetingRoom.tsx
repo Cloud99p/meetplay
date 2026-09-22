@@ -11,6 +11,7 @@ import ConsentBanner from './ConsentBanner';
 import ChatPanel from '../chat/ChatPanel';
 import GamesPanel from '../games/GamesPanel';
 import { RoomContext, RoomAudioRenderer } from '@livekit/components-react';
+import { RoomEvent, type Participant as LKParticipant } from 'livekit-client';
 import type { GameRound } from '../../types/games';
 
 interface Props {
@@ -31,8 +32,35 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  // Speaker view FOLLOWS whoever is talking by default. Clicking a tile pins that
+  // person and stops the follow; switching back into the view resumes it. Before
+  // this the view showed whoever happened to be first in the participant list, so
+  // it never tracked the person actually speaking.
+  const [followSpeaker, setFollowSpeaker] = useState(true);
   const [recordingNoticeDismissed, setRecordingNoticeDismissed] = useState(false);
   const [captionsNudgeDismissed, setCaptionsNudgeDismissed] = useState(false);
+
+  // Track the active speaker from LiveKit itself (server-side voice activity, not
+  // a guess from audio levels). LiveKit includes the local participant when you
+  // are the one talking.
+  useEffect(() => {
+    const room = state.liveKitRoom;
+    if (!room) return;
+    const apply = (speakers: LKParticipant[]) => {
+      if (!followSpeaker) return;
+      const next = speakers[0]?.identity;
+      if (next) setActiveSpeakerId(next);
+    };
+    apply(room.activeSpeakers ?? []);
+    room.on(RoomEvent.ActiveSpeakersChanged, apply);
+    return () => {
+      room.off(RoomEvent.ActiveSpeakersChanged, apply);
+    };
+  }, [state.liveKitRoom, followSpeaker]);
+  // Whose hand is up right now — drives the button's pressed state, the participant
+  // list badge and the tile badge.
+  const myHandRaised =
+    state.participants.find((p) => p.id === state.participantId)?.handRaised ?? false;
   // LiveKit room context — null when the media server is unreachable or while
   // connecting. Reading the context directly (instead of useLocalParticipant)
   // is deliberate: the hook THROWS "No room provided" when the context is
@@ -324,7 +352,15 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                   received by the SDK but never played: total silence. */}
               <RoomAudioRenderer />
               {viewMode === 'grid' ? (
-                <VideoGrid onSpeakerClick={(id) => { setActiveSpeakerId(id); setViewMode('speaker'); }} />
+                <VideoGrid
+          onSpeakerClick={(id) => {
+            // A deliberate click wins over the automatic follow.
+            setFollowSpeaker(false);
+            setActiveSpeakerId(id);
+            setViewMode('speaker');
+          }}
+          raisedIds={state.participants.filter((p) => p.handRaised).map((p) => p.id)}
+        />
               ) : (
                 <SpeakerView activeSpeakerId={activeSpeakerId} />
               )}
@@ -377,10 +413,20 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
           {/* View mode toggle */}
           <button
-            onClick={() => setViewMode(viewMode === 'grid' ? 'speaker' : 'grid')}
+            onClick={() => {
+              const next = viewMode === 'grid' ? 'speaker' : 'grid';
+              // Entering speaker view resumes following the speaker.
+              if (next === 'speaker') setFollowSpeaker(true);
+              setViewMode(next);
+            }}
+            title={
+              viewMode === 'grid'
+                ? 'Switch to speaker view (follows whoever is talking)'
+                : 'Switch to grid view (everyone at once)'
+            }
             className="absolute top-4 left-4 px-2.5 sm:px-3 py-1.5 bg-caption-bg backdrop-blur-sm text-xs text-foreground rounded-md hover:bg-bg-elevated transition-colors cursor-pointer"
           >
-            {viewMode === 'grid' ? 'Speaker' : 'Grid'}
+            {viewMode === 'grid' ? 'Speaker view' : 'Grid view'}
           </button>
 
           {/* Side panel buttons on video — on mobile (panel overlays) hide them
@@ -523,7 +569,8 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         onToggleChat={() => { setShowParticipants(false); setShowGames(false); setShowChat(!showChat); }}
         onToggleParticipants={() => { setShowChat(false); setShowGames(false); setShowParticipants(!showParticipants); }}
         onToggleTranscription={() => actions.toggleTranscription(!state.transcriptionEnabled)}
-        onRaiseHand={() => actions.toggleHand(true)}
+        onRaiseHand={() => actions.toggleHand(!myHandRaised)}
+                handRaised={myHandRaised}
         onSendEmoji={actions.sendEmoji}
         onLeave={handleEndOrLeave}
         showChat={showChat}

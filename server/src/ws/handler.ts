@@ -37,6 +37,11 @@ import { omniClient } from '../intelligence/omniClient.js';
 // Track host disconnect timers: roomId -> { hostId, timer }
 const hostTimers = new Map<string, { hostId: string; timer: NodeJS.Timeout }>();
 
+// Raised hands per room. Kept server-side so a late joiner or a resync sees the
+// same hands as everyone else — the broadcast alone would only reach whoever was
+// connected at the moment the hand went up.
+const raisedHands = new Map<string, Set<string>>();
+
 // Track active connections per room: roomId -> Set<participantId>
 const activeConnections = new Map<string, Set<string>>();
 
@@ -143,6 +148,7 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
           isHost: p.is_host,
           isMuted: p.is_muted,
           isCameraOff: p.is_camera_off ?? false,
+          handRaised: raisedHands.get(roomId)?.has(p.id) ?? false,
         })),
         transcriptionEnabled: room.transcription_enabled,
         roomState: room.state,
@@ -322,6 +328,8 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
   socket.on('close', () => {
     channelManager.leave(roomId, participantId);
     unregisterConnection(roomId, participantId);
+    // A hand cannot stay raised after the person leaves.
+    raisedHands.get(roomId)?.delete(participantId);
     connBuckets.delete(participantId);
     const left = (roomConnCounts.get(roomId) ?? 1) - 1;
     if (left <= 0) {
@@ -418,6 +426,12 @@ async function handleMessage(
     }
 
     case 'hand:raise': {
+      let hands = raisedHands.get(roomId);
+      if (!hands) {
+        hands = new Set<string>();
+        raisedHands.set(roomId, hands);
+      }
+      hands.add(senderId);
       channelManager.broadcast(roomId, {
         type: 'hand:raised',
         payload: { participantId: senderId, participantName: sender.name },
@@ -426,6 +440,7 @@ async function handleMessage(
     }
 
     case 'hand:lower': {
+      raisedHands.get(roomId)?.delete(senderId);
       channelManager.broadcast(roomId, {
         type: 'hand:lowered',
         payload: { participantId: senderId },

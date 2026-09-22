@@ -23,7 +23,8 @@
     "verify:stt:guards": "node --env-file=.env scripts/verify-stt-guards.mjs",
     "verify:host": "node scripts/verify-host-return.mjs",
     "verify:ws-limits": "node scripts/verify-ws-limits.mjs",
-    "verify:health": "node --env-file=.env scripts/verify-health.mjs"
+    "verify:health": "node --env-file=.env scripts/verify-health.mjs",
+    "verify:hand": "node scripts/verify-hand-raise.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1133.0",
