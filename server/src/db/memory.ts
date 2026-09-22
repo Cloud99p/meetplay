@@ -136,6 +136,11 @@ export async function setRoomHost(roomId: string, participantId: string, hostUse
 
 // ─── Participants ───────────────────────────────────────────
 
+/** The in-memory backend is always "up" — keeps /health backend-agnostic. */
+export async function pingDb(): Promise<boolean> {
+  return true;
+}
+
 export async function addParticipant(opts: {
   roomId: string;
   name: string;

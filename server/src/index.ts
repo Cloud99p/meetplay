@@ -11,6 +11,7 @@ import { livekitRoutes } from './routes/livekit.js';
 import { sttRoutes } from './routes/stt.js';
 import { wsHandler } from './ws/handler.js';
 import { runMigrations } from './db/migrate.js';
+import { pingDb } from './db/queries.js';
 import { startRoomCleanup } from './cleanup.js';
 
 const app = Fastify({ logger: true });
@@ -69,7 +70,20 @@ await app.register(rateLimit, {
   timeWindow: '1 minute',
 });
 
-app.get('/health', async () => ({ ok: true, service: 'meetplay-server' }));
+// Health is only "healthy" if the database behind it is usable.
+//
+// An audit probe caught the old version answering {"ok":true} while every data
+// route returned 500 because Postgres had rejected the credentials — a deploy that
+// looks green in the dashboard and is broken for users. A 503 here makes the
+// platform's healthcheck see what the users see.
+app.get('/health', async (req, reply) => {
+  const dbUp = await pingDb();
+  if (!dbUp) {
+    req.log.error('[health] database unreachable');
+    return reply.code(503).send({ ok: false, service: 'meetplay-server', db: 'down' });
+  }
+  return { ok: true, service: 'meetplay-server', db: USE_MEMORY ? 'memory' : 'postgres' };
+});
 
 // Error handler: never leak internals to the caller.
 //
@@ -99,15 +113,29 @@ app.setErrorHandler((err: unknown, req, reply) => {
 // Retries briefly so a slowly-starting Docker/RAILWAY DB doesn't leave the
 // schema un-migrated; the server still boots if the DB is unreachable.
 if (!USE_MEMORY) {
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  let migrated = false;
+  for (let attempt = 1; attempt <= 5 && !migrated; attempt++) {
     try {
       await runMigrations();
       app.log.info('[migrate] schema up to date');
-      break;
+      migrated = true;
     } catch (e) {
       app.log.warn(`[migrate] attempt ${attempt}/5 failed — retrying in 3s: ${(e as Error)?.message ?? e}`);
       if (attempt < 5) await new Promise((r) => setTimeout(r, 3000));
-      else app.log.error('[migrate] giving up after 5 attempts — schema may be incomplete');
+    }
+  }
+  // A server without its schema answers 500 on every data route while looking
+  // perfectly alive — and the platform keeps sending it traffic (verified by an
+  // audit probe: /health said ok while Postgres was rejecting every query).
+  // Refuse to start instead, so the previous good deploy stays up.
+  // DB_STRICT_START=0 boots anyway, for debugging a broken database.
+  if (!migrated) {
+    const msg = '[migrate] schema unavailable after 5 attempts';
+    if (process.env.DB_STRICT_START === '0') {
+      app.log.error(`${msg} — DB_STRICT_START=0, starting anyway (degraded)`);
+    } else {
+      app.log.error(`${msg} — refusing to start with a broken database`);
+      process.exit(1);
     }
   }
 }

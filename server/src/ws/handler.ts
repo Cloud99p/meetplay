@@ -67,6 +67,50 @@ function unregisterConnection(roomId: string, participantId: string) {
   if (set.size === 0) activeConnections.delete(roomId);
 }
 
+// ── Message rate limits ─────────────────────────────────────────────────────
+// The hub is ONE process serving every room, so a single client spamming frames
+// degrades everyone in the call. Two token buckets apply: per connection (protects
+// the room) and per room (protects the process). Over-limit frames are dropped,
+// the sender is told once, and sustained flooding closes the socket (1008) rather
+// than letting it burn the event loop.
+interface Bucket {
+  tokens: number;
+  updated: number;
+  warned: boolean;
+  strikes: number;
+}
+
+const connBuckets = new Map<string, Bucket>();
+const roomBuckets = new Map<string, Bucket>();
+const roomConnCounts = new Map<string, number>();
+
+function makeBucket(burst: number): Bucket {
+  return { tokens: burst, updated: Date.now(), warned: false, strikes: 0 };
+}
+
+function takeToken(bucket: Bucket, burst: number, perSec: number): boolean {
+  const now = Date.now();
+  bucket.tokens = Math.min(burst, bucket.tokens + ((now - bucket.updated) / 1000) * perSec);
+  bucket.updated = now;
+  if (bucket.tokens < 1) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
+function envNum(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Bursts stay generous: a real client sends a handful of frames per second
+// (a caption, a chat line, a game tap), so these only catch floods.
+const WS_MSG_BURST = envNum(process.env.WS_MSG_BURST, 40);
+const WS_MSG_PER_SEC = envNum(process.env.WS_MSG_PER_SEC, 10);
+const WS_ROOM_BURST = envNum(process.env.WS_ROOM_BURST, 200);
+const WS_ROOM_PER_SEC = envNum(process.env.WS_ROOM_PER_SEC, 60);
+// Dropped frames in a row before the connection is closed.
+const WS_MSG_STRIKE_LIMIT = envNum(process.env.WS_MSG_STRIKE_LIMIT, 20);
 function isConnected(roomId: string, participantId: string): boolean {
   return activeConnections.get(roomId)?.has(participantId) ?? false;
 }
@@ -235,6 +279,39 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
   socket.on('message', (raw) => {
     const msg = decode(raw.toString());
     if (!msg) return;
+
+    // Metered BEFORE any work: a flood must not reach dispatch(), nor the pending
+    // queue (which would otherwise grow without bound during setup).
+    const connOk = takeToken(connBucket, WS_MSG_BURST, WS_MSG_PER_SEC);
+    const roomOk = takeToken(roomBucket, WS_ROOM_BURST, WS_ROOM_PER_SEC);
+    if (!connOk || !roomOk) {
+      connBucket.strikes++;
+      if (!connBucket.warned) {
+        connBucket.warned = true;
+        console.warn(
+          `[ws:${roomId}:${participantId}] message rate limit hit (conn=${connOk ? "ok" : "over"}, room=${roomOk ? "ok" : "over"}) — dropping frames`,
+        );
+        try {
+          socket.send(encode({ type: 'rate:limited', payload: { perSec: WS_MSG_PER_SEC, roomLimited: !roomOk } }));
+        } catch {
+          /* socket already gone */
+        }
+      }
+      if (connBucket.strikes > WS_MSG_STRIKE_LIMIT) {
+        console.warn(`[ws:${roomId}:${participantId}] closing: sustained message flooding`);
+        try {
+          socket.close(1008, 'message rate limit');
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    // Traffic inside the limit re-arms the warning, so one brief burst does not
+    // leave the connection flagged for its lifetime.
+    connBucket.strikes = 0;
+    connBucket.warned = false;
+
     if (!ready) {
       pendingMessages.push(msg);
       return;
@@ -245,6 +322,14 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
   socket.on('close', () => {
     channelManager.leave(roomId, participantId);
     unregisterConnection(roomId, participantId);
+    connBuckets.delete(participantId);
+    const left = (roomConnCounts.get(roomId) ?? 1) - 1;
+    if (left <= 0) {
+      roomConnCounts.delete(roomId);
+      roomBuckets.delete(roomId); // last one out drops the room bucket
+    } else {
+      roomConnCounts.set(roomId, left);
+    }
 
     // If host left, schedule promotion
     if (participant.is_host) {
@@ -252,6 +337,12 @@ export async function wsHandler(socket: WebSocket, request: FastifyRequest) {
     }
   });
 
+  // Metering state for this connection and its room.
+  const connBucket = makeBucket(WS_MSG_BURST);
+  connBuckets.set(participantId, connBucket);
+  const roomBucket = roomBuckets.get(roomId) ?? makeBucket(WS_ROOM_BURST);
+  if (!roomBuckets.has(roomId)) roomBuckets.set(roomId, roomBucket);
+  roomConnCounts.set(roomId, (roomConnCounts.get(roomId) ?? 0) + 1);
   // Join channel
   channelManager.join(roomId, participantId, participant.name, socket);
   registerConnection(roomId, participantId);

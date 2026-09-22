@@ -21,6 +21,8 @@ export interface MeetingState {
   liveKitConnected: boolean;
   liveKitReconnecting: boolean;
   livekitError: string | null;
+  /** Transient notice when the server rate-limited our frames. */
+  rateLimitNotice?: string | null;
   messages: ChatMessage[];
   leaderboard: LeaderboardEntry[];
   activeRound: RoomStateSnapshot['activeRound'];
@@ -97,6 +99,9 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [livekitUrl, setLivekitUrl] = useState('ws://localhost:7880');
   const [captions, setCaptions] = useState<MeetingState['captions']>([]);
   const [livekitError, setLivekitError] = useState<string | null>(null);
+  // Set when the server drops our frames (flood protection in ws/handler.ts).
+  const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
+  const rateLimitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [liveKitConnected, setLiveKitConnected] = useState(false);
   const [liveKitReconnecting, setLiveKitReconnecting] = useState(false);
   // Quiet mode: true while ANY participant is screen-sharing (host presenting).
@@ -1061,6 +1066,20 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.send('game:submit', { roundId, answer: { guess } });
   }, [ws]);
 
+  // The server meters incoming frames; when it drops ours we have to say so —
+  // a silently missing caption or bet looks like a bug in the game itself.
+  useEffect(() => {
+    const off = ws.on('rate:limited', (payload: { perSec: number; roomLimited: boolean }) => {
+      setRateLimitNotice(
+        payload.roomLimited
+          ? 'This room is very busy — some updates were dropped.'
+          : 'You are sending updates faster than the limit — some were dropped.',
+      );
+      if (rateLimitTimer.current) clearTimeout(rateLimitTimer.current);
+      rateLimitTimer.current = setTimeout(() => setRateLimitNotice(null), 6000);
+    });
+    return off;
+  }, [ws]);
   const state: MeetingState = {
     room,
     participants,
@@ -1073,6 +1092,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     liveKitConnected,
     liveKitReconnecting,
     livekitError,
+    rateLimitNotice,
     messages,
     leaderboard,
     activeRound,

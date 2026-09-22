@@ -172,6 +172,16 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
 
       {/* STT/mic error banner — surfaced when the adapter can't capture
           (e.g. mic permission denied), so users see why captions are silent. */}
+      {/* Rate-limit notice — the server dropped frames because we flooded it */}
+      {state.rateLimitNotice && (
+        <div
+          role="status"
+          className="flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-sm text-foreground"
+        >
+          <FiAlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+          <p className="flex-1 min-w-0">{state.rateLimitNotice}</p>
+        </div>
+      )}
       {sttError && (
         <div
           role="alert"

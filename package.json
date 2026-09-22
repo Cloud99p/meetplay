@@ -21,7 +21,9 @@
     "verify:caption": "node scripts/verify-caption-speaker.mjs",
     "verify:stt": "node --env-file=.env scripts/verify-stt-proxy.mjs",
     "verify:stt:guards": "node --env-file=.env scripts/verify-stt-guards.mjs",
-    "verify:host": "node scripts/verify-host-return.mjs"
+    "verify:host": "node scripts/verify-host-return.mjs",
+    "verify:ws-limits": "node scripts/verify-ws-limits.mjs",
+    "verify:health": "node --env-file=.env scripts/verify-health.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1133.0",

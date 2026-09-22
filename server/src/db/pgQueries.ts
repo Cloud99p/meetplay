@@ -141,6 +141,30 @@ export async function getParticipantById(id: string) {
   return rows[0] ?? null;
 }
 
+/** Liveness probe for /health: is the database actually answering?
+ *
+ * One round-trip, no state, and it never throws — the caller turns `false` into a
+ * 503. Small enough to survive a saturated pool, so a busy database still reads
+ * "up" rather than timing out into a false alarm.
+ */
+const PING_TIMEOUT_MS = Number(process.env.DB_PING_TIMEOUT_MS ?? 3000) || 3000;
+
+export async function pingDb(): Promise<boolean> {
+  try {
+    await Promise.race([
+      pool.query('select 1'),
+      new Promise((_resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('ping timeout')), PING_TIMEOUT_MS);
+        // Do not keep the event loop alive just for a health probe.
+        (t as { unref?: () => void }).unref?.();
+      }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function removeParticipant(id: string) {
   await pool.query(`DELETE FROM participants WHERE id = $1`, [id]);
 }

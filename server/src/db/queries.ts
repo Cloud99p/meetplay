@@ -66,5 +66,6 @@ export const getRoomRecordings = impl.getRoomRecordings;
 // ─── Recap ──────────────────────────────────────────────────
 
 export const getRecap = impl.getRecap;
+export const pingDb = impl.pingDb;
 export type RecapData = import('./recapSummary.js').RecapData;
 export type RoomRecording = import('./recapSummary.js').RoomRecording;

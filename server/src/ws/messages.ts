@@ -99,6 +99,9 @@ export type ServerMessage =
   | { type: 'recording:stopped'; payload: { recording: false; downloadUrl: string | null; filename: string | null } }
   | { type: 'recording:error'; payload: { message: string } }
   | { type: 'host:promoted'; payload: { participantId: string } }
+  // Sent when the server drops frames because a client is flooding the hub.
+  // Payload mirrors the limits in ws/handler.ts so a client can back off.
+  | { type: 'rate:limited'; payload: { perSec: number; roomLimited: boolean } }
   | { type: 'transcript:toggled'; payload: { enabled: boolean } }
   | { type: 'room:state'; payload: RoomStateSnapshot };
 

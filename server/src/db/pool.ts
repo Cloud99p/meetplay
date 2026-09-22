@@ -42,7 +42,7 @@ export function sslConfigFor(connectionString: string | undefined): pg.PoolConfi
 /** Build a pool for the configured DATABASE_URL. */
 export function createPool(): pg.Pool {
   const connectionString = process.env.DATABASE_URL;
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString,
     ssl: sslConfigFor(connectionString),
     // Keep the pool small: managed poolers (Supabase :6543, pgbouncer) cap
@@ -53,4 +53,15 @@ export function createPool(): pg.Pool {
     connectionTimeoutMillis: 10_000,
     application_name: 'meetplay',
   });
+
+  // A pool with no 'error' listener CRASHES the process when an idle client is
+  // terminated — which is exactly what a database restart or failover does
+  // (docker stop, Supabase maintenance, a network blip). Node treats an
+  // unhandled 'error' event as fatal, so the server vanished mid-call instead of
+  // riding out the outage and reporting itself unhealthy via /health.
+  pool.on('error', (err: Error) => {
+    console.error('[db] idle client error (pool survives):', err?.message ?? err);
+  });
+
+  return pool;
 }
