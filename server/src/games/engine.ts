@@ -107,7 +107,7 @@ export class RoomGameEngine {
   bingo: BingoState | null = null;
   flash: FlashState | null = null;
   speakerStats: Map<string, SpeakerStats> = new Map();
-  // Member-created word bets (community markets) — keyed by lowercase word
+  // Member-created word guesses (community markets) — keyed by lowercase word
   userMarkets: Map<string, {
     state: MarketState;
     createdBy: string;
@@ -234,7 +234,7 @@ export class RoomGameEngine {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Word Count Bet market (Layer A)
+  // Word Count Guess market (Layer A)
   // ──────────────────────────────────────────────────────────────
 
   private async openMarket(targetWord: string): Promise<void> {
@@ -619,12 +619,12 @@ export class RoomGameEngine {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Member-created word bets (Layer A) — community markets
+  // Member-created word guesses (Layer A) — community markets
   // ──────────────────────────────────────────────────────────────
 
   /**
    * A member opens a market on a word with their own guess. Anyone can then
-   * bet on it. Validation is strict to keep the board clean.
+   * guess on it. Validation is strict to keep the board clean.
    * Returns an error string, or null on success.
    */
   async createUserMarket(
@@ -650,7 +650,7 @@ export class RoomGameEngine {
       return `"${word}" is already the main market word.`;
     }
     if (this.userMarkets.has(word)) {
-      return `"${word}" already has a market — bet on it instead.`;
+      return `"${word}" already has a market — guess on it instead.`;
     }
     if (this.userMarkets.size >= RoomGameEngine.MAX_USER_MARKETS) {
       return `Max ${RoomGameEngine.MAX_USER_MARKETS} member markets reached.`;
@@ -707,7 +707,7 @@ export class RoomGameEngine {
     }
   }
 
-  /** Place/update a bet on a member market. */
+  /** Place/update a guess on a member market. */
   async submitUserMarketBet(
     wordOrRoundId: string,
     participantId: string,

@@ -168,7 +168,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   return (
     <div className="h-screen flex flex-col bg-bg-base">
       {/* Captions & games OFF nudge — host only, dismissible. The entire
-          engagement layer (word bets, bingo, quizzes) is starved without
+          engagement layer (word guesses, bingo, quizzes) is starved without
           transcription, so make it loud. */}
       {state.isHost && !state.transcriptionEnabled && !captionsNudgeDismissed && (
         <div
@@ -178,7 +178,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
           <FiMicOff className="w-4 h-4 text-amber-500 flex-shrink-0 animate-pulse" />
           <p className="flex-1 min-w-0">
             <span className="font-semibold">Captions &amp; games are off.</span>
-            <span className="text-muted"> Enable transcription to unlock word bets, bingo and the recap quiz.</span>
+            <span className="text-muted"> Enable transcription to unlock word guesses, bingo and the recap quiz.</span>
           </p>
           <button
             onClick={() => actions.toggleTranscription(true)}
@@ -360,6 +360,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             setViewMode('speaker');
           }}
           raisedIds={state.participants.filter((p) => p.handRaised).map((p) => p.id)}
+          tileShape={state.tileShape}
         />
               ) : (
                 <SpeakerView activeSpeakerId={activeSpeakerId} />
@@ -411,6 +412,8 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             </div>
           )}
 
+          {/* Top-left controls: view mode (everyone) + tile shape (host only) */}
+          <div className="absolute top-4 left-4 flex flex-wrap items-center gap-2">
           {/* View mode toggle */}
           <button
             onClick={() => {
@@ -424,10 +427,27 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                 ? 'Switch to speaker view (follows whoever is talking)'
                 : 'Switch to grid view (everyone at once)'
             }
-            className="absolute top-4 left-4 px-2.5 sm:px-3 py-1.5 bg-caption-bg backdrop-blur-sm text-xs text-foreground rounded-md hover:bg-bg-elevated transition-colors cursor-pointer"
+            className="px-2.5 sm:px-3 py-1.5 bg-caption-bg backdrop-blur-sm text-xs text-foreground rounded-md hover:bg-bg-elevated transition-colors cursor-pointer"
           >
             {viewMode === 'grid' ? 'Speaker view' : 'Grid view'}
           </button>
+
+          {/* Host-only: tile shape for the whole room. Horizontal tiles fit more of
+              everyone's background; "fill" is the old stretch-to-fit behaviour. */}
+          {state.isHost && (
+            <button
+              onClick={() => {
+                const order: Array<'16:9' | '4:3' | 'fill'> = ['16:9', '4:3', 'fill'];
+                const current = order.indexOf(state.tileShape ?? '16:9');
+                actions.setTileShape(order[(current + 0 + 1) % order.length]);
+              }}
+              className="px-2.5 sm:px-3 py-1.5 bg-caption-bg backdrop-blur-sm text-xs text-foreground rounded-md hover:bg-bg-elevated transition-colors cursor-pointer"
+              title="Tile shape for everyone: horizontal, 4:3, or fill the grid"
+            >
+              Tiles: {state.tileShape === '4:3' ? '4:3' : state.tileShape === 'fill' ? 'Fill' : '16:9'}
+            </button>
+          )}
+          </div>
 
           {/* Side panel buttons on video — on mobile (panel overlays) hide them
               while a panel is open since the panel has its own close X; keep

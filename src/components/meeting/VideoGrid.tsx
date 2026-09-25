@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LuHand } from 'react-icons/lu';
+import type { TileShape } from '../../types/games';
 import { VideoTrack, useTracks, useRemoteParticipants, useLocalParticipant, type TrackReference } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 
@@ -7,10 +8,17 @@ interface Props {
   onSpeakerClick?: (participantId: string) => void;
   /** Participant ids whose hand is currently raised (badge on their tile). */
   raisedIds?: string[];
+  /** Host-selected tile shape for the whole room. */
+  tileShape?: TileShape;
   className?: string;
 }
 
-export default function VideoGrid({ onSpeakerClick, raisedIds = [], className = '' }: Props) {
+export default function VideoGrid({
+  onSpeakerClick,
+  raisedIds = [],
+  tileShape = '16:9',
+  className = '',
+}: Props) {
   const remoteParticipants = useRemoteParticipants();
   const { localParticipant } = useLocalParticipant();
   const cameraTracks = useTracks([Track.Source.Camera]);
@@ -84,11 +92,19 @@ export default function VideoGrid({ onSpeakerClick, raisedIds = [], className = 
 
   const cameraGrid = (
     <div
-      className="grid gap-2 flex-1 min-h-0"
-      style={{
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gridTemplateRows: `repeat(${Math.ceil(tiles.length / cols)}, 1fr)`,
-      }}
+      className={
+        tileShape === 'fill'
+          ? 'grid gap-2 flex-1 min-h-0'
+          : 'grid gap-2 flex-1 min-h-0 overflow-y-auto content-start'
+      }
+      style={
+        tileShape === 'fill'
+          ? {
+              gridTemplateColumns: `repeat(${cols}, 1fr)`,
+              gridTemplateRows: `repeat(${Math.ceil(tiles.length / cols)}, 1fr)`,
+            }
+          : { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }
+      }
     >
       {tiles.map((tile) => (
         <VideoTile
@@ -97,6 +113,7 @@ export default function VideoGrid({ onSpeakerClick, raisedIds = [], className = 
           name={tile.name}
           trackRef={trackByParticipant.get(tile.participantId)}
           raised={raisedIds.includes(tile.participantId)}
+          shape={tileShape}
           onClick={() => onSpeakerClick?.(tile.participantId)}
         />
       ))}
@@ -128,17 +145,23 @@ export default function VideoGrid({ onSpeakerClick, raisedIds = [], className = 
   );
 }
 
+// Tile container classes. Kept in one place so the shape variant stays readable.
+const BASE =
+  'relative rounded-lg overflow-hidden bg-bg-elevated border border-border cursor-pointer hover:border-primary/50 transition-colors group';
+
 function VideoTile({
   isLocal,
   name,
   trackRef,
   raised = false,
+  shape = '16:9',
   onClick,
 }: {
   isLocal: boolean;
   name: string;
   trackRef?: TrackReference;
   raised?: boolean;
+  shape?: TileShape;
   onClick: () => void;
 }) {
   // When the camera is off (or mid-switch) LiveKit keeps the track around
@@ -150,7 +173,7 @@ function VideoTile({
   return (
     <div
       onClick={onClick}
-      className="relative rounded-lg overflow-hidden bg-bg-elevated border border-border cursor-pointer hover:border-primary/50 transition-colors group"
+      className={[BASE, shape === '16:9' ? 'aspect-video' : shape === '4:3' ? 'aspect-[4/3]' : ''].join(' ')}
     >
       {cameraOn ? (
         <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />

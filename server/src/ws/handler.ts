@@ -42,6 +42,11 @@ const hostTimers = new Map<string, { hostId: string; timer: NodeJS.Timeout }>();
 // connected at the moment the hand went up.
 const raisedHands = new Map<string, Set<string>>();
 
+// Tile shape per room (call-scoped presentation choice, not worth a DB column).
+// New rooms and every room that has never set one use 16:9.
+type TileShape = '16:9' | '4:3' | 'fill';
+const tileShapes = new Map<string, TileShape>();
+
 // Track active connections per room: roomId -> Set<participantId>
 const activeConnections = new Map<string, Set<string>>();
 
@@ -151,6 +156,7 @@ async function sendRoomState(roomId: string, ws: WebSocket, participantId?: stri
           handRaised: raisedHands.get(roomId)?.has(p.id) ?? false,
         })),
         transcriptionEnabled: room.transcription_enabled,
+        tileShape: tileShapes.get(roomId) ?? '16:9',
         roomState: room.state,
         recording: isRecording(roomId),
         // Lets the host UI disable the record button with a reason instead of
@@ -517,7 +523,7 @@ async function handleMessage(
       // Forward FINAL utterances to the game engine only. Deepgram interims
       // resend the FULL accumulated transcript each time, so feeding them to
       // the engine would double/triple-count every word during continuous
-      // speech (Word Count Bet, Bingo marks, speaker stats, recap pool).
+      // speech (Word Count Guess, Bingo marks, speaker stats, recap pool).
       // Interims still broadcast above for the live caption overlay.
       // Low-confidence finals (below the floor) are excluded too.
       if (isFinal && !belowFloor) {
@@ -625,6 +631,20 @@ async function handleMessage(
       channelManager.broadcast(roomId, {
         type: 'participant:removed',
         payload: { targetId },
+      });
+      break;
+    }
+
+    case 'room:set-tile-shape': {
+      // Host-only: it changes the layout for everybody in the room.
+      const isHost = await checkIsHost(roomId, senderId);
+      if (!isHost) return;
+      const shape = payload?.shape as TileShape;
+      if (shape !== '16:9' && shape !== '4:3' && shape !== 'fill') return;
+      tileShapes.set(roomId, shape);
+      channelManager.broadcast(roomId, {
+        type: 'room:tileShape',
+        payload: { shape },
       });
       break;
     }

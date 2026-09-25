@@ -30,6 +30,8 @@ export interface LeaderboardEntry {
   roundsPlayed: number;
 }
 
+export type TileShape = '16:9' | '4:3' | 'fill';
+
 export interface RoomStateSnapshot {
   participants: Array<{
     id: string;
@@ -41,6 +43,8 @@ export interface RoomStateSnapshot {
     handRaised: boolean;
   }>;
   transcriptionEnabled: boolean;
+  /** Host-selected tile shape. Absent from older servers -> treated as 16:9. */
+  tileShape?: TileShape;
   roomState: 'active' | 'locked' | 'ended';
   recording: boolean;
   /**

@@ -16,7 +16,7 @@ function formatTime(ms: number): string {
 }
 
 /**
- * Flash Word Count Bet — a random short-window WCB that pops up mid-call.
+ * Flash Word Count Guess — a random short-window WCB that pops up mid-call.
  *
  * The server picks a word (from live speech or a curated pool), opens a
  * 60–120s window, and everyone bets how many times the word will be said
@@ -59,7 +59,7 @@ export default function FlashBet({ flash, onBet, quiet }: Props) {
     <div className={`w-full min-w-0 max-w-full p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <h4 className="text-xs font-medium text-warning uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
-          <FiZap className="w-3.5 h-3.5" /> Flash Word Count Bet
+          <FiZap className="w-3.5 h-3.5" /> Flash Word Count Guess
           {live && (
             <span className="text-[10px] font-semibold bg-warning/15 text-warning px-1.5 py-0.5 rounded-full animate-pulse-dot">
               LIVE
@@ -76,7 +76,7 @@ export default function FlashBet({ flash, onBet, quiet }: Props) {
         <div className="flex items-center justify-between text-[11px] text-muted mb-1">
           <span className="flex items-center gap-1">
             <FiClock className="w-3 h-3" />
-            {live ? 'Window open — place your bet!' : flash.resolved ? 'Window closed' : 'Opening…'}
+            {live ? 'Window open — make your guess!' : flash.resolved ? 'Window closed' : 'Opening…'}
           </span>
           <span className={`font-mono font-semibold ${remainingMs < 15_000 && live ? 'text-warning' : ''}`}>
             {flash.resolved ? formatTime(0) : formatTime(remainingMs)}
@@ -161,7 +161,7 @@ export default function FlashBet({ flash, onBet, quiet }: Props) {
         <div className="flex items-center gap-2 bg-bg-elevated border border-border rounded-lg px-3 py-2 text-xs text-foreground">
           <FiAward className="w-4 h-4 text-warning flex-shrink-0" />
           <span>
-            Your bet: <strong className="font-mono">{myLocked.guess}</strong> @ ×{myLocked.lockedOdds.toFixed(2)} · final{' '}
+            Your guess: <strong className="font-mono">{myLocked.guess}</strong> @ ×{myLocked.lockedOdds.toFixed(2)} · final{' '}
             <strong className="font-mono">{flash.actualCount}</strong>
           </span>
         </div>

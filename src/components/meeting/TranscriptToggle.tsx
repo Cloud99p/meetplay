@@ -44,7 +44,7 @@ export default function TranscriptToggle({ isHost, enabled, onToggle }: Props) {
       title={
         enabled
           ? 'Captions & games are ON — tap to turn off'
-          : 'Captions & games are OFF — tap to enable (powers word bets, bingo, quizzes)'
+          : 'Captions & games are OFF — tap to enable (powers word guesses, bingo, quizzes)'
       }
       className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait border ${
         enabled

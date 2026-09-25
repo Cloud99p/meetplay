@@ -35,6 +35,10 @@ export const ParticipantCameraPayload = z.object({
 });
 export const ParticipantRemovePayload = z.object({ targetId: z.string().uuid() });
 export const RoomLockPayload = z.object({});
+
+/** Tile shape for the video grid. Host-controlled, applied to the whole room. */
+export const TileShape = z.enum(['16:9', '4:3', 'fill']);
+export const RoomTileShapePayload = z.object({ shape: TileShape });
 export const RoomEndPayload = z.object({});
 export const RecordingStartPayload = z.object({});
 export const RecordingStopPayload = z.object({});
@@ -52,6 +56,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('participant:camera'), payload: ParticipantCameraPayload }),
   z.object({ type: z.literal('participant:remove'), payload: ParticipantRemovePayload }),
   z.object({ type: z.literal('room:lock'), payload: RoomLockPayload }),
+  z.object({ type: z.literal('room:set-tile-shape'), payload: RoomTileShapePayload }),
   z.object({ type: z.literal('room:end'), payload: RoomEndPayload }),
   z.object({ type: z.literal('recording:start'), payload: RecordingStartPayload }),
   z.object({ type: z.literal('recording:stop'), payload: RecordingStopPayload }),
@@ -94,6 +99,8 @@ export type ServerMessage =
   | { type: 'participant:camera'; payload: { targetId: string; isCameraOff: boolean } }
   | { type: 'participant:removed'; payload: { targetId: string } }
   | { type: 'room:locked'; payload: Record<string, never> }
+  /** Host changed the grid layout for everyone. */
+  | { type: 'room:tileShape'; payload: { shape: '16:9' | '4:3' | 'fill' } }
   | { type: 'room:ended'; payload: Record<string, never> }
   | { type: 'recording:started'; payload: { recording: true; startedAt: number } }
   | { type: 'recording:stopped'; payload: { recording: false; downloadUrl: string | null; filename: string | null } }
@@ -164,6 +171,11 @@ export interface UserMarketSnapshot {
 export interface RoomStateSnapshot {
   participants: Array<{ id: string; name: string; isHost: boolean; isMuted: boolean; isCameraOff: boolean }>;
   transcriptionEnabled: boolean;
+  /**
+   * Tile shape the host selected for this call. Absent from older snapshots —
+   * the client treats `undefined` as `16:9`.
+   */
+  tileShape?: '16:9' | '4:3' | 'fill';
   roomState: 'active' | 'locked' | 'ended';
   recording: boolean;
   /**

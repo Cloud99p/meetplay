@@ -1,4 +1,4 @@
-// Client-side Word Count Bet logic — mirrors server/src/games/wordCountBet.ts
+// Client-side Word Count Guess logic — mirrors server/src/games/wordCountBet.ts
 // (optimistic preview; server is authoritative).
 
 export interface UtteranceLike {

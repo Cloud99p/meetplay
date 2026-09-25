@@ -16,9 +16,9 @@ interface Props {
 const GAME_LABELS: Record<string, string> = {
   who_said_that: 'Who Said That?',
   scrabble: 'Letter Tiles',
-  word_count_bet: 'Word Count Bet',
-  flash_wcb: '⚡ Flash Word Count Bet',
-  user_word_bet: '👥 Member Word Bet',
+  word_count_bet: 'Word Count Guess',
+  flash_wcb: '⚡ Flash Word Count Guess',
+  user_word_bet: '👥 Member Word Guess',
   bingo: 'Buzzword Bingo',
   recap_quiz: 'Recap Quiz',
 };

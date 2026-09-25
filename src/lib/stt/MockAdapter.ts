@@ -4,7 +4,7 @@ import type { STTAdapter, Utterance } from './STTAdapter';
 //
 // The script deliberately exercises all three games:
 //  - Quotable lines -> Who Said That (e.g. the beta/wishlist/align lines)
-//  - Repeated target words -> Word Count Bet ('roadmap'/'roadmaps'/'roadmapping',
+//  - Repeated target words -> Word Count Guess ('roadmap'/'roadmaps'/'roadmapping',
 //    'deadline', 'sync')
 //  - A variety of common words -> Scrabble pool
 //

@@ -1,4 +1,4 @@
-// Word Count Bet v2 — call-long prediction market.
+// Word Count Guess v2 — call-long prediction market.
 //
 // Unlike the old 60-second WCB round, the market opens at the start of the
 // call and stays open until the room ends. Bets are locked at the odds
@@ -21,7 +21,7 @@ export interface MarketBet {
  * Bets on the same number pool their weight. The implied probability of a
  * number is its share of total weight; odds = 1 / probability.
  *
- * A new bet on a number pushes that number's odds DOWN (crowd effect);
+ * A new guess on a number pushes that number's odds DOWN (crowd effect);
  * the live count moving makes nearby guesses more likely — both shift the
  * odds in real time, which is exactly the drama we want.
  */

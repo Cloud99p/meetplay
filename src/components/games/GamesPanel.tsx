@@ -104,7 +104,7 @@ export default function GamesPanel({
             {market && (
               <WordCountMarket market={market} onBet={onMarketBet} quiet={quiet} />
             )}
-            {/* Member-created word bets */}
+            {/* Member-created word guesses */}
             <UserMarkets
               markets={userMarkets}
               myParticipantId={participantId}
@@ -132,7 +132,7 @@ export default function GamesPanel({
                   <LuGamepad2 className="w-6 h-6 text-primary" />
                 </div>
                 <p className="text-sm text-foreground">No games yet</p>
-                <p className="text-xs text-muted">Pick one above to play — flash word bets still pop up on their own.</p>
+                <p className="text-xs text-muted">Pick one above to play — flash word guesses still pop up on their own.</p>
               </div>
             )}
           </div>

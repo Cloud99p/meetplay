@@ -39,7 +39,7 @@ export default function WordCountBet({ round, onSubmit, disabled }: Props) {
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-medium text-muted uppercase tracking-wider">Word Count Bet</h4>
+        <h4 className="text-xs font-medium text-muted uppercase tracking-wider">Word Count Guess</h4>
         <span className="text-sm font-mono text-warning flex items-center gap-1"><FiClock className="w-3.5 h-3.5" />{formatTime(timeLeft)}</span>
       </div>
 
@@ -50,7 +50,7 @@ export default function WordCountBet({ round, onSubmit, disabled }: Props) {
       </div>
 
       <div>
-        <label className="block text-sm text-foreground mb-1.5">Your bet</label>
+        <label className="block text-sm text-foreground mb-1.5">Your guess</label>
         <div className="flex gap-2">
           <input
             type="number"
@@ -65,7 +65,7 @@ export default function WordCountBet({ round, onSubmit, disabled }: Props) {
             disabled={disabled || round.state !== 'open' || submitted}
             className="px-5 py-2 bg-primary hover:bg-primary-hover text-on-primary font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm active:scale-[0.98]"
           >
-            {submitted ? <span className="flex items-center gap-1 justify-center"><FiCheck className="w-4 h-4" /> Locked</span> : 'Bet'}
+            {submitted ? <span className="flex items-center gap-1 justify-center"><FiCheck className="w-4 h-4" /> Locked</span> : 'Guess'}
           </button>
         </div>
         {round.state === 'scored' && (

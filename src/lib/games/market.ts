@@ -1,4 +1,4 @@
-// Client-side Word Count Bet market logic — mirrors server/src/games/market.ts
+// Client-side Word Count Guess market logic — mirrors server/src/games/market.ts
 // (optimistic preview; server is authoritative).
 
 export interface MarketBet {

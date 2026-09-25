@@ -9,7 +9,7 @@ interface Props {
 }
 
 /**
- * Word Count Bet v2 — call-long prediction market.
+ * Word Count Guess v2 — call-long prediction market.
  *
  * Opens at the start of the call and stays open until the room ends. The
  * live count ticks up as the word is spoken; odds for every bet shift in
@@ -41,7 +41,7 @@ export default function WordCountMarket({ market, onBet, quiet }: Props) {
     <div className={`w-full min-w-0 max-w-full p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <h4 className="text-xs font-medium text-muted uppercase tracking-wider flex items-center gap-1.5">
-          <FiTrendingUp className="w-3.5 h-3.5 text-primary" /> Word Count Bet
+          <FiTrendingUp className="w-3.5 h-3.5 text-primary" /> Word Count Guess
           <span className="text-[10px] font-normal text-muted bg-bg-elevated px-1.5 py-0.5 rounded-full">live all call</span>
         </h4>
         {market.resolved && (
@@ -123,7 +123,7 @@ export default function WordCountMarket({ market, onBet, quiet }: Props) {
         <div className="flex items-center gap-2 bg-bg-elevated border border-border rounded-lg px-3 py-2 text-xs text-foreground">
           <FiAward className="w-4 h-4 text-warning flex-shrink-0" />
           <span>
-            Your bet: <strong className="font-mono">{myLocked.guess}</strong> @ ×{myLocked.lockedOdds.toFixed(2)} · final{' '}
+            Your guess: <strong className="font-mono">{myLocked.guess}</strong> @ ×{myLocked.lockedOdds.toFixed(2)} · final{' '}
             <strong className="font-mono">{market.actualCount}</strong>
           </span>
         </div>

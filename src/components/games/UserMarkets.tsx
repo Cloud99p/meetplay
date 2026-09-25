@@ -27,9 +27,9 @@ function formatTime(ms: number): string {
 }
 
 /**
- * Member-created word markets — anyone in the call can open a bet on a word
+ * Member-created word markets — anyone in the call can open a guess on a word
  * ("I think 'synergy' gets said 10 times"), optionally with a time limit
- * (1/2/5/10 min) instead of call-long. Everyone else can bet on it too.
+ * (1/2/5/10 min) instead of call-long. Everyone else can guess on it too.
  * Resolves when the timer fires or at meeting end.
  *
  * Responsive container: uses min-w-0 + flex-wrap so every row fits the panel
@@ -71,7 +71,7 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
   return (
     <div className={`w-full min-w-0 max-w-full p-4 space-y-3 border-b border-border ${quiet ? 'opacity-70' : ''}`}>
       <h4 className="text-xs font-medium text-muted uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
-        <FiUsers className="w-3.5 h-3.5 text-secondary flex-shrink-0" /> Member Word Bets
+        <FiUsers className="w-3.5 h-3.5 text-secondary flex-shrink-0" /> Member Word Guesss
         <span className="text-[10px] font-normal text-muted bg-bg-elevated px-1.5 py-0.5 rounded-full">
           {markets.length}/5
         </span>
@@ -80,7 +80,7 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
       {/* Create form */}
       {canCreate && (
         <div className="w-full min-w-0 bg-bg-elevated border border-border rounded-lg p-2.5 sm:p-3 space-y-2.5">
-          <p className="text-[11px] text-muted leading-snug">Open a bet — pick a word + your guess. Others can bet on it too.</p>
+          <p className="text-[11px] text-muted leading-snug">Start a round — pick a word and your guess. Others can guess too.</p>
           {/* Word + guess + Open — grid layout: word column (1fr) shrinks to
               absorb tight widths so the Open button always stays inside the
               card. Stacks to one column on mobile. */}
@@ -222,7 +222,7 @@ export default function UserMarkets({ markets, myParticipantId, error, onCreate,
                   <div className="flex items-center gap-2 bg-bg-elevated border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground">
                     <FiAward className="w-3.5 h-3.5 text-warning flex-shrink-0" />
                     <span className="min-w-0 break-words">
-                      Your bet: <strong className="font-mono">{myBet.guess}</strong> @ ×{myBet.lockedOdds.toFixed(2)} · final{' '}
+                      Your guess: <strong className="font-mono">{myBet.guess}</strong> @ ×{myBet.lockedOdds.toFixed(2)} · final{' '}
                       <strong className="font-mono">{m.actualCount}</strong>
                     </span>
                   </div>

@@ -16,6 +16,8 @@ export interface MeetingState {
   participantId: string | null;
   participantName: string | null;
   transcriptionEnabled: boolean;
+  /** Tile shape chosen by the host for this call. */
+  tileShape: import('../types/games').TileShape;
   connected: boolean;
   liveKitRoom: import('livekit-client').Room | null;
   liveKitConnected: boolean;
@@ -59,6 +61,7 @@ export interface MeetingActions {
   sendChat: (content: string) => void;
   sendEmoji: (emoji: string) => void;
   toggleHand: (raised: boolean) => void;
+  setTileShape: (shape: import('../types/games').TileShape) => void;
   toggleTranscription: (enabled: boolean) => void;
   endMeeting: () => void;
   startRecording: () => void;
@@ -101,6 +104,8 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [livekitError, setLivekitError] = useState<string | null>(null);
   // Set when the server drops our frames (flood protection in ws/handler.ts).
   const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
+  // Host-controlled grid layout; 16:9 unless the host picks otherwise.
+  const [tileShape, setTileShapeState] = useState<import('../types/games').TileShape>('16:9');
   const rateLimitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [liveKitConnected, setLiveKitConnected] = useState(false);
   const [liveKitReconnecting, setLiveKitReconnecting] = useState(false);
@@ -135,6 +140,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       ws.on('room:state', (payload: RoomStateSnapshot) => {
         setParticipants(payload.participants);
         setTranscriptionEnabled(payload.transcriptionEnabled);
+        if (payload.tileShape) setTileShapeState(payload.tileShape);
         setActiveRound(payload.activeRound);
         setLeaderboard(payload.leaderboard);
         setMarket(payload.market);
@@ -357,7 +363,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       })
     );
 
-    // ── Word Count Bet market (always-on) ──
+    // ── Word Count Guess market (always-on) ──
     unsubs.push(
       ws.on('game:market:open', (payload: { roundId: string; targetWord: string; startedAt: string }) => {
         setMarket({
@@ -882,6 +888,10 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     ws.send('emoji:send', { emoji });
   }, [ws]);
 
+  const setTileShape = useCallback((shape: import('../types/games').TileShape) => {
+    ws.send('room:set-tile-shape', { shape });
+  }, [ws]);
+
   const toggleHand = useCallback((raised: boolean) => {
     ws.send(raised ? 'hand:raise' : 'hand:lower', {});
   }, [ws]);
@@ -1100,6 +1110,14 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     };
   }, [ws]);
 
+  // Host changed the tile shape for the room.
+  useEffect(() => {
+    const off = ws.on('room:tileShape', (payload: { shape: import('../types/games').TileShape }) => {
+      setTileShapeState(payload.shape);
+    });
+    return off;
+  }, [ws]);
+
   const state: MeetingState = {
     room,
     participants,
@@ -1131,10 +1149,12 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     recordingReason,
     recordingResult,
     recordingError,
+    tileShape,
   };
 
   const actions = useMemo<MeetingActions>(
     () => ({
+      setTileShape,
       createAndJoin,
       joinRoom,
       resumeSession,
@@ -1159,6 +1179,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       placeUserMarketBet,
     }),
     [
+      setTileShape,
       createAndJoin,
       joinRoom,
       resumeSession,
