@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { collapseCaptions, type CaptionLike, type CaptionRow } from '../../lib/stt/captionRows';
 
-interface Caption {
-  speakerId: string;
-  speakerName: string | null;
-  text: string;
-  isFinal: boolean;
-  confidence?: number;
-  timestamp: number;
-}
+type Caption = CaptionLike;
 
 interface Props {
   captions: Caption[];
@@ -20,12 +14,15 @@ const LOW_CONFIDENCE = 0.5;
 
 export default function CaptionsOverlay({ captions, visible }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [recent, setRecent] = useState<Caption[]>([]);
+  const [recent, setRecent] = useState<CaptionRow[]>([]);
   const [paused, setPaused] = useState(false);
 
-  // Keep last 3 captions visible
+  // Keep the last 3 COLLAPSED captions visible. Collapsing is the whole point:
+  // the engine emits an interim per update plus a final, so the raw array holds
+  // several overlapping renderings of one sentence and this overlay used to
+  // stack them (the "same words three times" bug).
   useEffect(() => {
-    setRecent(captions.slice(-3));
+    setRecent(collapseCaptions(captions).slice(-3));
   }, [captions]);
 
   // "Captions paused" when no caption:event for >30s (STT drop resilience)
@@ -52,11 +49,11 @@ export default function CaptionsOverlay({ captions, visible }: Props) {
   return (
     <div className="absolute bottom-16 left-0 right-0 px-4 pointer-events-none">
       <div className="max-w-2xl mx-auto space-y-1">
-        {recent.map((c, i) => {
+        {recent.map((c) => {
           const lowConf = typeof c.confidence === 'number' && c.confidence < LOW_CONFIDENCE;
           return (
             <div
-              key={`${c.timestamp}-${i}`}
+              key={c.key}
               className={`caption-enter px-3 py-1.5 rounded-lg backdrop-blur-sm transition-opacity ${
                 lowConf ? 'bg-caption-bg/50 opacity-50' : 'bg-caption-bg'
               }`}

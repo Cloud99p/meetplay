@@ -1,22 +1,20 @@
 /**
- * Verifies the transcript panel's three display modes and its interim/final
- * collapsing, by rendering the REAL component (react-dom/server) and asserting
- * on the markup. There is no browser runner in this repo, so this is the
- * strongest available check of the panel's rendering logic.
+ * Verifies caption collapsing and the transcript panel's modes, by rendering the
+ * REAL component (react-dom/server) and calling the REAL collapse function.
  *
- * Why the collapsing matters: the STT engine emits an interim result and then a
- * refined final for the same utterance. Rendering the raw array would stack a
- * stale half-sentence above the finished one, or duplicate the phrase. The
- * collapse is presentation-only — it must never touch state.captions, which
- * games and the recap read.
+ * The bug this locks down ("its still 3 duplicates"): the engine narrates one
+ * sentence repeatedly - an interim per update plus a final - and the client
+ * appends every one to `captions`, so any surface showing a window of that array
+ * stacked the same words up to three times.
  *
  * Usage (from the repo root):
- *   npx tsx scripts/verify-transcript-panel.ts
+ *   npm run verify:transcript
  */
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import TranscriptPanel from '../src/components/meeting/TranscriptPanel.tsx';
+import { collapseCaptions } from '../src/lib/stt/captionRows.ts';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -47,69 +45,101 @@ const render = (captions, mode = 'visible', transcriptionEnabled = true, isHost 
     })
   );
 
-// 1. hidden renders nothing at all
+console.log('--- collapseCaptions (the duplicate-words bug) ---');
+
+// The exact sequence Cloud is hearing: one sentence, three emissions.
+const flux = collapseCaptions([
+  cap({ speakerId: 'local', text: 'hello', isFinal: false, timestamp: 1 }),
+  cap({ speakerId: 'local', text: 'hello there', isFinal: false, timestamp: 2 }),
+  cap({ speakerId: 'local', text: 'hello there', isFinal: true, timestamp: 3 }),
+]);
+check('Flux: one sentence -> one row', flux.length === 1, `rows=${flux.length}`);
+check('Flux: row holds the settled text', flux[0]?.text === 'hello there');
+check('Flux: nothing left marked live', flux[0]?.live === false);
+
+// The v1 diarized path disagrees with itself about the speaker of a sentence:
+// interims are unattributed, finals are `speaker-N`.
+const v1 = collapseCaptions([
+  cap({ speakerId: 'unknown', speakerName: null, text: 'we should ship', isFinal: false, timestamp: 1 }),
+  cap({ speakerId: 'speaker-0', speakerName: 'Ada', text: 'we should ship it friday', isFinal: true, timestamp: 2 }),
+]);
+check('v1: unattributed interim + diarized final -> one row', v1.length === 1, `rows=${v1.length}`);
+check('v1: final wording wins', v1[0]?.text === 'we should ship it friday');
+
+// SAFETY: a pending line must never be swallowed by a different speaker.
+const twoSpeakers = collapseCaptions([
+  cap({ speakerId: 'speaker-0', speakerName: 'Ada', text: 'yes', isFinal: false, timestamp: 1 }),
+  cap({ speakerId: 'speaker-1', speakerName: 'Bo', text: 'yes we can', isFinal: true, timestamp: 2 }),
+]);
+check('a different speaker does not eat the pending line', twoSpeakers.length === 2, `rows=${twoSpeakers.length}`);
+
+// Two genuinely separate sentences stay separate.
+const twoSentences = collapseCaptions([
+  cap({ text: 'first one', timestamp: 1 }),
+  cap({ text: 'second one', timestamp: 2 }),
+]);
+check('separate sentences are preserved', twoSentences.length === 2);
+
+// Interim refinement.
+const refined = collapseCaptions([
+  cap({ speakerId: 'a', text: 'so the', isFinal: false, timestamp: 1 }),
+  cap({ speakerId: 'a', text: 'so the plan is', isFinal: false, timestamp: 2 }),
+]);
+check('interim refinement -> one row with the later text', refined.length === 1 && refined[0].text === 'so the plan is');
+
+// The same settled sentence twice (eager final then identical refined final).
+const repeat = collapseCaptions([
+  cap({ text: 'exactly the same', timestamp: 1 }),
+  cap({ text: 'exactly the same', timestamp: 2 }),
+]);
+check('identical repeated final -> one row', repeat.length === 1);
+
+// A final that does NOT continue the pending line appends rather than clobbers.
+const unrelated = collapseCaptions([
+  cap({ speakerId: 'local', text: 'okay', isFinal: false, timestamp: 1 }),
+  cap({ speakerId: 'local', text: 'completely different sentence here', isFinal: true, timestamp: 2 }),
+]);
+check('non-continuing final appends', unrelated.length === 2, `rows=${unrelated.length}`);
+
+check('empty input -> empty output', collapseCaptions([]).length === 0);
+check('whitespace-only captions are dropped', collapseCaptions([cap({ text: '   ' })]).length === 0);
+
+console.log('--- TranscriptPanel (modes and rendering) ---');
+
 check('mode=hidden renders no panel', render([cap()], 'hidden') === '');
 
-// 2. modal states when there is nothing to show
 const off = render([], 'visible', false, true);
 check('transcription off explains itself', off.includes('Transcription is off'));
 check('host gets an enable button when transcription is off', off.includes('Turn on transcription'));
 check('non-host gets no enable button', !render([], 'visible', false, false).includes('Turn on transcription'));
 check('transcription on with no speech shows listening state', render([], 'visible', true).includes('Listening'));
 
-// 3. two speakers, finals only — both lines, both names
-const twoSpeakers = render([
+const two = render([
   cap({ speakerId: 'a', speakerName: 'Ada', text: 'first line', timestamp: 1 }),
   cap({ speakerId: 'b', speakerName: 'Bo', text: 'second line', timestamp: 2 }),
 ]);
-check('both finals render', twoSpeakers.includes('first line') && twoSpeakers.includes('second line'));
-check('both speakers are named', twoSpeakers.includes('Ada') && twoSpeakers.includes('Bo'));
-check('consent promise is shown next to the text', twoSpeakers.includes('deleted when the meeting ends'));
+check('both finals render', two.includes('first line') && two.includes('second line'));
+check('both speakers are named', two.includes('Ada') && two.includes('Bo'));
+check('consent promise is shown next to the text', two.includes('deleted when the meeting ends'));
 
-// 4. interim then final for the SAME utterance -> one line, not two
-const interimThenFinal = render([
-  cap({ speakerId: 'a', text: 'we should ship', isFinal: false, timestamp: 10 }),
-  cap({ speakerId: 'a', text: 'we should ship it friday', isFinal: true, timestamp: 11 }),
+// The panel renders the COLLAPSED stream, so the duplicate sequence is one line.
+const dupes = render([
+  cap({ speakerId: 'local', text: 'hello', isFinal: false, timestamp: 1 }),
+  cap({ speakerId: 'local', text: 'hello there', isFinal: false, timestamp: 2 }),
+  cap({ speakerId: 'local', text: 'hello there', isFinal: true, timestamp: 3 }),
 ]);
 check(
-  'final supersedes its interim (no stale half-sentence)',
-  count(interimThenFinal, 'we should ship') === 1 && interimThenFinal.includes('we should ship it friday'),
-  `occurrences of interim text = ${count(interimThenFinal, 'we should ship')}`
-);
-check('the settled line is no longer marked live', !interimThenFinal.includes('animate-pulse'));
-
-// 5. two interims in a row -> only the later text survives
-const twoInterims = render([
-  cap({ speakerId: 'a', text: 'so the plan', isFinal: false, timestamp: 20 }),
-  cap({ speakerId: 'a', text: 'so the plan is', isFinal: false, timestamp: 21 }),
-]);
-check(
-  'later interim replaces the earlier one',
-  twoInterims.includes('so the plan is') && !twoInterims.includes('so the plan</span>'),
-  'earlier interim text must not survive as its own line'
+  'panel does not repeat the same sentence',
+  count(dupes, 'hello there') === 1 && count(dupes, 'hello') === 1,
+  `"hello there" x${count(dupes, 'hello there')}`
 );
 
-// 6. an interim from ANOTHER speaker must not clobber the pending line
-const interleaved = render([
-  cap({ speakerId: 'a', speakerName: 'Ada', text: 'ada pending', isFinal: false, timestamp: 30 }),
-  cap({ speakerId: 'b', speakerName: 'Bo', text: 'bo pending', isFinal: false, timestamp: 31 }),
-]);
-check(
-  'interleaved speakers both keep their line',
-  interleaved.includes('ada pending') && interleaved.includes('bo pending')
-);
-
-// 7. a lone interim still renders, and is visibly live
-const liveOnly = render([cap({ text: 'still talking', isFinal: false, timestamp: 40 })]);
-check('lone interim renders live', liveOnly.includes('still talking') && liveOnly.includes('animate-pulse'));
-
-// 8. low-confidence finals are dimmed (same floor the server uses for games)
 check('low-confidence line is dimmed', render([cap({ confidence: 0.2 })]).includes('opacity-60'));
 check('confident line is not dimmed', !render([cap({ confidence: 0.95 })]).includes('opacity-60'));
-
-// 9. the mode control reports the current mode
 check('header reports Visible', render([cap()], 'visible').includes('Visible'));
 check('header reports Transparent', render([cap()], 'transparent').includes('Transparent'));
+check('panel docks right on desktop', render([cap()]).includes('sm:right-0'));
+check('panel is a bottom sheet on phones', render([cap()]).includes('max-h-[45%]'));
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FiChevronDown, FiEye, FiEyeOff, FiLayers, FiMic, FiMicOff, FiX } from 'react-icons/fi';
+import { collapseCaptions } from '../../lib/stt/captionRows';
 import type { MeetingState } from '../../hooks/useMeeting';
 
 /**
  * How the transcript panel is shown. A personal display preference, not room
  * state — it never travels over the wire, so it cannot disagree between
  * participants the way a broadcast flag can.
- *   visible     -> opaque panel, docked over the right edge of the video area
+ *   visible     -> opaque panel, docked to the right edge of the video area
  *   transparent -> same panel, see-through + blurred, so you can read and still
  *                  watch the video underneath
  *   hidden      -> not rendered at all
@@ -27,17 +28,6 @@ interface Props {
   onEnableTranscription?: () => void;
 }
 
-interface Row {
-  key: string;
-  speakerId: string;
-  speakerName: string | null;
-  text: string;
-  timestamp: number;
-  /** Still being refined by the STT engine — rendered dimmed, not yet settled. */
-  live: boolean;
-  confidence?: number;
-}
-
 /** Below this confidence a line renders dimmed (same floor the server uses for games/recap). */
 const LOW_CONFIDENCE = 0.5;
 /** Distance from the bottom that still counts as "following the live edge". */
@@ -52,11 +42,10 @@ const LABELS: Record<TranscriptMode, string> = {
 /**
  * The running transcript of the call.
  *
- * Important: this is a display-only view of `state.captions`. It collapses
- * consecutive interim results for presentation and never writes back to the
- * captions array, so the games and the recap keep reading the exact same
- * upstream data they always did. A display bug here cannot silently drop a
- * word from scoring.
+ * This is a display-only view of `state.captions`, collapsed via
+ * `collapseCaptions` so the engine's interim/final narration of one sentence
+ * does not stack up as duplicate lines. It never writes back to the array, so
+ * games and the recap keep reading exactly what they always did.
  */
 export default function TranscriptPanel({
   captions,
@@ -71,47 +60,7 @@ export default function TranscriptPanel({
   // Following the live edge, until the reader scrolls up to read something.
   const [stick, setStick] = useState(true);
 
-  const rows = useMemo<Row[]>(() => {
-    const out: Row[] = [];
-    for (const c of captions) {
-      const last = out[out.length - 1];
-      if (last && last.speakerId === c.speakerId) {
-        // Supersede rather than append. An interim for the same utterance
-        // replaces the pending line, and the final replaces the interim —
-        // otherwise Flux's eager result would leave a stale half-sentence
-        // stacked above the finished one.
-        if (!c.isFinal && last.live) {
-          out[out.length - 1] = {
-            ...last,
-            text: c.text,
-            timestamp: c.timestamp,
-            confidence: c.confidence,
-          };
-          continue;
-        }
-        if (c.isFinal && last.live) {
-          out[out.length - 1] = {
-            ...last,
-            text: c.text,
-            live: false,
-            timestamp: c.timestamp,
-            confidence: c.confidence,
-          };
-          continue;
-        }
-      }
-      out.push({
-        key: `${c.timestamp}-${out.length}-${c.speakerId}`,
-        speakerId: c.speakerId,
-        speakerName: c.speakerName,
-        text: c.text,
-        timestamp: c.timestamp,
-        live: !c.isFinal,
-        confidence: c.confidence,
-      });
-    }
-    return out;
-  }, [captions]);
+  const rows = useMemo(() => collapseCaptions(captions), [captions]);
 
   useEffect(() => {
     if (!stick) return;
@@ -131,12 +80,15 @@ export default function TranscriptPanel({
 
   const transparent = mode === 'transparent';
   const shell = transparent
-    ? 'bg-bg-surface/30 backdrop-blur-md border-l border-border/50'
-    : 'bg-bg-surface border-l border-border';
+    ? 'bg-bg-surface/30 backdrop-blur-md border-border/50'
+    : 'bg-bg-surface border-border';
 
   return (
     <div
-      className={`absolute top-16 bottom-0 right-0 w-full sm:w-80 flex flex-col z-30 ${shell}`}
+      /* Docking: a bottom sheet on phones (a full-width overlay would blank the
+         video) and a right-hand panel from the `sm` breakpoint up, so it never
+         lands on top of the middle of the screen. */
+      className={`absolute z-30 flex flex-col inset-x-0 bottom-0 max-h-[45%] rounded-t-xl border-t sm:rounded-none sm:border-t-0 sm:inset-x-auto sm:left-auto sm:right-0 sm:top-16 sm:bottom-0 sm:w-80 sm:max-h-none sm:border-l ${shell}`}
       role="log"
       aria-label="Meeting transcript"
     >

@@ -408,8 +408,14 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             </div>
           )}
 
-          {/* Captions overlay */}
-          <CaptionsOverlay captions={state.captions} visible={state.transcriptionEnabled} />
+          {/* Captions overlay. Suppressed while the transcript panel is open:
+              the panel already shows this text, and the overlay is centred at
+              the bottom of the video, so leaving it up put duplicate captions
+              in the middle of the screen. */}
+          <CaptionsOverlay
+            captions={state.captions}
+            visible={state.transcriptionEnabled && transcriptMode === 'hidden'}
+          />
 
           {/* Running transcript. Rendered inside the video area so it docks to
               the video's right edge and keeps working in text mode (no media
