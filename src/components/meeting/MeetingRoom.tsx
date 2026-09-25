@@ -7,6 +7,7 @@ import VideoDebug from './VideoDebug';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
 import CaptionsOverlay from './Captions';
+import TranscriptPanel, { TRANSCRIPT_MODES, type TranscriptMode } from './TranscriptPanel';
 import ParticipantList from './ParticipantList';
 import ConsentBanner from './ConsentBanner';
 import ChatPanel from '../chat/ChatPanel';
@@ -14,6 +15,9 @@ import GamesPanel from '../games/GamesPanel';
 import { RoomContext, RoomAudioRenderer } from '@livekit/components-react';
 import { RoomEvent, type Participant as LKParticipant } from 'livekit-client';
 import type { GameRound } from '../../types/games';
+
+/** Personal transcript-panel preference. Local, never sent to the server. */
+const TRANSCRIPT_MODE_KEY = 'meetplay.transcript-mode';
 
 interface Props {
   state: MeetingState;
@@ -40,6 +44,28 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [followSpeaker, setFollowSpeaker] = useState(true);
   const [recordingNoticeDismissed, setRecordingNoticeDismissed] = useState(false);
   const [captionsNudgeDismissed, setCaptionsNudgeDismissed] = useState(false);
+  // Transcript panel display mode. A personal preference, so it lives here in
+  // localStorage rather than in room state — the server never needs to agree
+  // with the client about it, so there is no wire flag that can drift.
+  // Defaults to hidden: a call looks exactly as it did before unless asked.
+  const [transcriptMode, setTranscriptMode] = useState<TranscriptMode>(() => {
+    if (typeof window === 'undefined') return 'hidden';
+    try {
+      const saved = window.localStorage.getItem(TRANSCRIPT_MODE_KEY);
+      if (saved === 'visible' || saved === 'transparent' || saved === 'hidden') return saved;
+    } catch {
+      /* storage disabled (private mode) — fall through to the default */
+    }
+    return 'hidden';
+  });
+  const changeTranscriptMode = useCallback((mode: TranscriptMode) => {
+    setTranscriptMode(mode);
+    try {
+      window.localStorage.setItem(TRANSCRIPT_MODE_KEY, mode);
+    } catch {
+      /* ignore — the mode still applies for this session */
+    }
+  }, []);
 
   // Track the active speaker from LiveKit itself (server-side voice activity, not
   // a guess from audio levels). LiveKit includes the local participant when you
@@ -385,6 +411,18 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
           {/* Captions overlay */}
           <CaptionsOverlay captions={state.captions} visible={state.transcriptionEnabled} />
 
+          {/* Running transcript. Rendered inside the video area so it docks to
+              the video's right edge and keeps working in text mode (no media
+              server), exactly like the captions overlay above it. */}
+          <TranscriptPanel
+            captions={state.captions}
+            mode={transcriptMode}
+            onModeChange={changeTranscriptMode}
+            transcriptionEnabled={state.transcriptionEnabled}
+            isHost={state.isHost}
+            onEnableTranscription={() => actions.toggleTranscription(true)}
+          />
+
           {/* Mic level meter — live proof audio is reaching the app. When the
               STT adapter's AudioContext is running and the mic is open, these
               bars dance as you speak. Flat bars + no captions = mic/capture
@@ -492,6 +530,19 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
               className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showGames ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
             >
               Games
+            </button>
+            {/* Cycles Visible -> Transparent -> Hidden. Hidden is the default,
+                so nothing changes for anyone who never touches it. */}
+            <button
+              onClick={() => {
+                const next =
+                  TRANSCRIPT_MODES[(TRANSCRIPT_MODES.indexOf(transcriptMode) + 1) % TRANSCRIPT_MODES.length];
+                changeTranscriptMode(next);
+              }}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${transcriptMode !== 'hidden' ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              title="Transcript panel: Visible, Transparent or Hidden"
+            >
+              Transcript: {transcriptMode === 'visible' ? 'Visible' : transcriptMode === 'transparent' ? 'Transparent' : 'Hidden'}
             </button>
           </div>
         </div>
