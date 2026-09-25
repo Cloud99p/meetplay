@@ -1,5 +1,8 @@
-@import "tailwindcss";
+/* Font @import must come first: Vite inlines `@import "tailwindcss"` in place, so an
+   @import placed after it would be emitted after real rules and break the
+   "@import rules must precede all rules" constraint during CSS optimization. */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
