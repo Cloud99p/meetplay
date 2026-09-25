@@ -2,7 +2,6 @@ import {
   Room,
   RoomEvent,
   VideoPresets,
-  supportsAV1,
   supportsVP9,
   type RemoteParticipant,
   type RoomConnectOptions,
@@ -69,13 +68,22 @@ const AUDIO_CAPTURE_OPTIONS = {
 } as const;
 
 /**
- * Pick the best codec this browser can actually publish:
- *  AV1 (best quality-per-bit, modern Chrome/Edge) -> VP9 (broad + SVC) -> VP8 (fallback).
- * Mirrors the SDK's own recommendation; supportsAV1/supportsVP9 already exclude
- * Safari/Firefox cases where SVC publishing is broken.
+ * Pick the best codec this browser can actually publish.
+ *
+ * VP9 -> VP8. AV1 is deliberately NOT preferred for camera publishing any more.
+ *
+ * Why: the ?debug=video readout showed the local camera reporting
+ * encoderImplementation 'libaom' (software AV1) together with
+ * qualityLimitationReason: 'bandwidth' at 0 kbps. Software AV1 cannot keep up
+ * on a CPU without hardware AV1 support, so the encoder itself becomes the
+ * bottleneck and starves the uplink -- which then collapses the peer's inbound
+ * layer too. VP9 has far broader hardware support and the SDK's SVC path works
+ * well with it, so it is the safer default.
+ *
+ * supportsVP9 already excludes Safari/Firefox cases where SVC publishing is
+ * broken.
  */
-function pickVideoCodec(): 'av1' | 'vp9' | 'vp8' {
-  if (supportsAV1()) return 'av1';
+function pickVideoCodec(): 'vp9' | 'vp8' {
   if (supportsVP9()) return 'vp9';
   return 'vp8';
 }
@@ -89,20 +97,31 @@ function createRoom(): Room {
     publishDefaults: {
       videoCodec: pickVideoCodec(),
       backupCodec: { codec: 'vp8' },
-      // Simulcast ladder: h180/h360 for small tiles, h720 for medium, h1080
-      // top layer so capable viewers get full 1080p (1920x1080@30fps 3Mbps).
-      // adaptiveStream picks the right layer per viewer; dynacast stops
-      // layers nobody is watching. VP9/AV1 SVC derive their own spatial
-      // layers and ignore this list (full-res top automatically).
+      // Simulcast ladder: 3 layers, not 4.
+      //
+      // Every layer is a separate encode of the same camera and they all share
+      // one uplink. Four layers (h180+h360+h720+h1080) ask for roughly 5-7 Mbps
+      // of upstream even when nobody is watching the top one. On a congested
+      // link that saturates the pipe, the bandwidth estimator collapses and both
+      // directions degrade together -- which is what the ?debug=video readout
+      // showed: own camera pinned at 0 kbps with qualityLimitationReason
+      // 'bandwidth', while the incoming tile fell from 1080p/2620 kbps to
+      // 270x480/27 kbps (the h180 rung) inside a minute.
+      //
+      // Top layer is 720p: 1920x1080@30fps at the stock ~3 Mbps is starved
+      // (clean 1080p wants 4.5-6 Mbps), so the common case becomes a sharp 720p
+      // rather than a shredded 1080p. A grid tile is not 1080p wide.
       videoSimulcastLayers: [
         VideoPresets.h180,
         VideoPresets.h360,
         VideoPresets.h720,
-        VideoPresets.h1080,
       ],
-      // Default encoding when simulcast isn't negotiated: full 1080p.
-      videoEncoding: VideoPresets.h1080.encoding,
-      degradationPreference: 'maintain-resolution',
+      // Default encoding when simulcast isn't negotiated: 720p.
+      videoEncoding: VideoPresets.h720.encoding,
+      // 'balanced' instead of 'maintain-resolution': on a bandwidth dip, step
+      // down to a clean lower layer rather than holding full resolution and
+      // shredding detail into visible blocks at full pixel count.
+      degradationPreference: 'balanced',
       // Screen share: default is 1080p @ 3 Mbps; bump to 4 Mbps so text and
       // slides stay crisp when presenting.
       screenShareEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
