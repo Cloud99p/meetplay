@@ -6,8 +6,7 @@ import VideoGrid from './VideoGrid';
 import VideoDebug from './VideoDebug';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
-import CaptionsOverlay from './Captions';
-import TranscriptPanel, { TRANSCRIPT_MODES, type TranscriptMode } from './TranscriptPanel';
+import CaptionsOverlay, { TRANSCRIPT_MODES, type TranscriptMode } from './Captions';
 import ParticipantList from './ParticipantList';
 import ConsentBanner from './ConsentBanner';
 import ChatPanel from '../chat/ChatPanel';
@@ -408,25 +407,14 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             </div>
           )}
 
-          {/* Captions overlay. Suppressed while the transcript panel is open:
-              the panel already shows this text, and the overlay is centred at
-              the bottom of the video, so leaving it up put duplicate captions
-              in the middle of the screen. */}
+          {/* On-screen captions. `transcriptMode` controls how this text is
+              DRAWN — solid pills, see-through pills, or off. It deliberately
+              does not open a panel: the setting exists to control the captions
+              in the middle of the screen, and a sidebar here would both cover
+              the video and hide the very thing being toggled. */}
           <CaptionsOverlay
             captions={state.captions}
-            visible={state.transcriptionEnabled && transcriptMode === 'hidden'}
-          />
-
-          {/* Running transcript. Rendered inside the video area so it docks to
-              the video's right edge and keeps working in text mode (no media
-              server), exactly like the captions overlay above it. */}
-          <TranscriptPanel
-            captions={state.captions}
-            mode={transcriptMode}
-            onModeChange={changeTranscriptMode}
-            transcriptionEnabled={state.transcriptionEnabled}
-            isHost={state.isHost}
-            onEnableTranscription={() => actions.toggleTranscription(true)}
+            mode={state.transcriptionEnabled ? transcriptMode : 'hidden'}
           />
 
           {/* Mic level meter — live proof audio is reaching the app. When the

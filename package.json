@@ -19,13 +19,14 @@
     "verify:presign": "npx tsx scripts/verify-presign.ts",
     "verify:r2": "node --env-file=.env scripts/verify-r2-live.mjs",
     "verify:caption": "node scripts/verify-caption-speaker.mjs",
+    "verify:caption-turn": "node scripts/verify-caption-turn-count.mjs",
     "verify:stt": "node --env-file=.env scripts/verify-stt-proxy.mjs",
     "verify:stt:guards": "node --env-file=.env scripts/verify-stt-guards.mjs",
     "verify:host": "node scripts/verify-host-return.mjs",
     "verify:ws-limits": "node scripts/verify-ws-limits.mjs",
     "verify:health": "node --env-file=.env scripts/verify-health.mjs",
     "verify:hand": "node scripts/verify-hand-raise.mjs",
-    "verify:transcript": "npx tsx scripts/verify-transcript-panel.ts"
+    "verify:transcript": "npx tsx scripts/verify-caption-display.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1133.0",
