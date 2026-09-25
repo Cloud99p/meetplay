@@ -3,6 +3,7 @@ import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
 import { useStt } from '../../hooks/useStt';
 import { FiAlertTriangle, FiCircle, FiLink, FiMicOff, FiUsers } from 'react-icons/fi';
 import VideoGrid from './VideoGrid';
+import VideoDebug from './VideoDebug';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
 import CaptionsOverlay from './Captions';
@@ -365,6 +366,11 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
               ) : (
                 <SpeakerView activeSpeakerId={activeSpeakerId} />
               )}
+              {/* Quality readout. Renders only with ?debug=video in the URL
+                  (hash-router form: #/room/<id>?debug=video), so a normal call
+                  sees nothing. Read-only getStats() — it never changes publish
+                  settings, so it cannot alter what it measures. */}
+              <VideoDebug room={state.liveKitRoom} />
             </>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6">
