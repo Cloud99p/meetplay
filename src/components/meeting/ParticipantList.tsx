@@ -43,7 +43,7 @@ export default function ParticipantList({ participants, isHost, currentId, onMut
                     <span className="text-[10px] text-muted">(you)</span>
                   )}
                   {p.handRaised && (
-                    <LuHand className="w-3 h-3 text-secondary flex-shrink-0" title="Hand raised" />
+                    <LuHand className="w-3 h-3 text-secondary flex-shrink-0 animate-pulse" title="Hand raised" />
                   )}
                   {p.isMuted && (
                     <FiVolumeX className="w-3 h-3 text-muted flex-shrink-0" title="Muted by host" />

@@ -26,7 +26,8 @@
     "verify:ws-limits": "node scripts/verify-ws-limits.mjs",
     "verify:health": "node --env-file=.env scripts/verify-health.mjs",
     "verify:hand": "node scripts/verify-hand-raise.mjs",
-    "verify:transcript": "npx tsx scripts/verify-caption-display.ts"
+    "verify:transcript": "npx tsx scripts/verify-caption-display.ts",
+    "verify:hand-notify": "npx tsx scripts/verify-hand-notifications.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1133.0",

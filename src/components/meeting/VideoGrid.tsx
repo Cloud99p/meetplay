@@ -188,7 +188,7 @@ function VideoTile({
       )}
       {raised && (
         <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-secondary/90 text-on-secondary">
-          <LuHand className="w-3 h-3" />
+          <LuHand className="w-3 h-3 animate-pulse" />
           <span className="text-[10px] font-semibold">Raised</span>
         </div>
       )}

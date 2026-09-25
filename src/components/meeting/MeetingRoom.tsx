@@ -6,7 +6,9 @@ import VideoGrid from './VideoGrid';
 import VideoDebug from './VideoDebug';
 import SpeakerView from './SpeakerView';
 import ControlBar from './ControlBar';
-import CaptionsOverlay, { TRANSCRIPT_MODES, type TranscriptMode } from './Captions';
+import CaptionsOverlay, { TRANSCRIPT_MODES, resolveTranscriptMode, type TranscriptMode } from './Captions';
+import HandRaiseToasts from './HandRaiseToasts';
+import { diffHands, type HandAnnouncement } from '../../lib/meeting/handEvents';
 import ParticipantList from './ParticipantList';
 import ConsentBanner from './ConsentBanner';
 import ChatPanel from '../chat/ChatPanel';
@@ -43,19 +45,20 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [followSpeaker, setFollowSpeaker] = useState(true);
   const [recordingNoticeDismissed, setRecordingNoticeDismissed] = useState(false);
   const [captionsNudgeDismissed, setCaptionsNudgeDismissed] = useState(false);
-  // Transcript panel display mode. A personal preference, so it lives here in
+  // Caption display mode. A personal preference, so it lives here in
   // localStorage rather than in room state — the server never needs to agree
   // with the client about it, so there is no wire flag that can drift.
   // Defaults to hidden: a call looks exactly as it did before unless asked.
+  // resolveTranscriptMode also maps the retired `transparent` value onto
+  // `visible`, so a preference saved by that build still shows captions.
   const [transcriptMode, setTranscriptMode] = useState<TranscriptMode>(() => {
     if (typeof window === 'undefined') return 'hidden';
     try {
-      const saved = window.localStorage.getItem(TRANSCRIPT_MODE_KEY);
-      if (saved === 'visible' || saved === 'transparent' || saved === 'hidden') return saved;
+      return resolveTranscriptMode(window.localStorage.getItem(TRANSCRIPT_MODE_KEY));
     } catch {
       /* storage disabled (private mode) — fall through to the default */
+      return 'hidden';
     }
-    return 'hidden';
   });
   const changeTranscriptMode = useCallback((mode: TranscriptMode) => {
     setTranscriptMode(mode);
@@ -87,6 +90,67 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   // list badge and the tile badge.
   const myHandRaised =
     state.participants.find((p) => p.id === state.participantId)?.handRaised ?? false;
+
+  // --- Raising a hand should be LOUD ---------------------------------------
+  // The state logic here was already correct (the server tracks hands, the
+  // client derives them, verify:hand round-trips 8/8), yet a hand going up was
+  // invisible in practice: a tiny glyph on a tile, and a button that only
+  // latched once the server echo came back. So instead of more plumbing, make
+  // it visible:
+  //   1. clicking latches immediately (optimistic) and announces locally, so the
+  //      person who clicked never waits on a round trip to see it worked;
+  //   2. everyone else's raise is announced BY NAME with an animation.
+  const [handAnnouncements, setHandAnnouncements] = useState<HandAnnouncement[]>([]);
+  const prevParticipantsRef = useRef(state.participants);
+  // Non-null while a click is not yet confirmed by the server.
+  const [pendingHand, setPendingHand] = useState<boolean | null>(null);
+  const effectiveHand = pendingHand ?? myHandRaised;
+
+  // Others' raises come from the participant diff — the derived, server-seeded
+  // truth. Your own is announced at click time, so it is filtered out here to
+  // avoid announcing it twice.
+  useEffect(() => {
+    const prev = prevParticipantsRef.current;
+    prevParticipantsRef.current = state.participants;
+    if (prev === state.participants) return;
+    const changes = diffHands(prev, state.participants, state.participantId).filter((a) => !a.isSelf);
+    if (changes.length > 0) setHandAnnouncements((cur) => [...cur, ...changes].slice(-4));
+  }, [state.participants, state.participantId]);
+
+  // Clear the optimistic value once the server agrees, or give up after a few
+  // seconds so a failed send cannot leave the button stuck latched.
+  useEffect(() => {
+    if (pendingHand === null) return;
+    if (myHandRaised === pendingHand) {
+      setPendingHand(null);
+      return;
+    }
+    const timer = setTimeout(() => setPendingHand(null), 5000);
+    return () => clearTimeout(timer);
+  }, [pendingHand, myHandRaised]);
+
+  const dismissHandAnnouncement = useCallback((id: string) => {
+    setHandAnnouncements((cur) => cur.filter((a) => a.id !== id));
+  }, []);
+
+  const toggleHand = useCallback(() => {
+    const next = !effectiveHand;
+    setPendingHand(next);
+    setHandAnnouncements((cur) =>
+      [
+        ...cur,
+        {
+          id: `self-${next ? 'raised' : 'lowered'}-${Date.now()}`,
+          participantId: state.participantId ?? 'self',
+          name: 'You',
+          action: next ? ('raised' as const) : ('lowered' as const),
+          isSelf: true,
+          at: Date.now(),
+        },
+      ].slice(-4)
+    );
+    actions.toggleHand(next);
+  }, [effectiveHand, actions, state.participantId]);
   // LiveKit room context — null when the media server is unreachable or while
   // connecting. Reading the context directly (instead of useLocalParticipant)
   // is deliberate: the hook THROWS "No room provided" when the context is
@@ -407,14 +471,19 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             </div>
           )}
 
-          {/* On-screen captions. `transcriptMode` controls how this text is
-              DRAWN — solid pills, see-through pills, or off. It deliberately
-              does not open a panel: the setting exists to control the captions
-              in the middle of the screen, and a sidebar here would both cover
-              the video and hide the very thing being toggled. */}
+          {/* On-screen captions. `transcriptMode` is a plain on/off for this
+              text — it deliberately does not open a panel: the setting controls
+              the captions in the middle of the screen, and a sidebar here would
+              both cover the video and hide the very thing being toggled. */}
           <CaptionsOverlay
             captions={state.captions}
             mode={state.transcriptionEnabled ? transcriptMode : 'hidden'}
+          />
+
+          {/* "Ada raised their hand" — the visible half of raising a hand. */}
+          <HandRaiseToasts
+            announcements={handAnnouncements}
+            onDismiss={dismissHandAnnouncement}
           />
 
           {/* Mic level meter — live proof audio is reaching the app. When the
@@ -525,8 +594,8 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             >
               Games
             </button>
-            {/* Cycles Visible -> Transparent -> Hidden. Hidden is the default,
-                so nothing changes for anyone who never touches it. */}
+            {/* Captions on/off for me. Hidden is the default, so nothing changes
+                for anyone who never touches it. */}
             <button
               onClick={() => {
                 const next =
@@ -534,9 +603,9 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                 changeTranscriptMode(next);
               }}
               className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${transcriptMode !== 'hidden' ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
-              title="Transcript panel: Visible, Transparent or Hidden"
+              title="Captions for me: Visible or Hidden"
             >
-              Transcript: {transcriptMode === 'visible' ? 'Visible' : transcriptMode === 'transparent' ? 'Transparent' : 'Hidden'}
+              Transcript: {transcriptMode === 'visible' ? 'Visible' : 'Hidden'}
             </button>
           </div>
         </div>
@@ -640,8 +709,8 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
         onToggleChat={() => { setShowParticipants(false); setShowGames(false); setShowChat(!showChat); }}
         onToggleParticipants={() => { setShowChat(false); setShowGames(false); setShowParticipants(!showParticipants); }}
         onToggleTranscription={() => actions.toggleTranscription(!state.transcriptionEnabled)}
-        onRaiseHand={() => actions.toggleHand(!myHandRaised)}
-                handRaised={myHandRaised}
+        onRaiseHand={toggleHand}
+        handRaised={effectiveHand}
         onSendEmoji={actions.sendEmoji}
         onLeave={handleEndOrLeave}
         showChat={showChat}

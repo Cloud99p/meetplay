@@ -2,20 +2,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { collapseCaptions, type CaptionLike } from '../../lib/stt/captionRows';
 
 /**
- * How the ON-SCREEN CAPTIONS are drawn. This is not a panel — it controls the
- * caption text that sits at the bottom-centre of the video, which is the whole
- * point of the setting:
- *   visible     -> solid pills (the default look)
- *   transparent -> see-through pills, so the video reads through the text
- *   hidden      -> no captions for me
+ * Whether the ON-SCREEN CAPTIONS are drawn. Two states, deliberately:
+ *   visible -> the caption pills at the bottom-centre of the video
+ *   hidden  -> no captions for me
+ *
+ * A third "transparent" state was tried and removed: in practice nobody wanted
+ * a middle setting, and the setting was never meant to open a panel — it
+ * controls this text, not a sidebar.
  *
  * A personal display preference (the caller persists it in localStorage), never
- * room state, so it cannot disagree between participants the way a broadcast
- * flag can.
+ * room state, so it cannot disagree between participants.
  */
-export type TranscriptMode = 'visible' | 'transparent' | 'hidden';
+export type TranscriptMode = 'visible' | 'hidden';
 
-export const TRANSCRIPT_MODES: TranscriptMode[] = ['visible', 'transparent', 'hidden'];
+export const TRANSCRIPT_MODES: TranscriptMode[] = ['visible', 'hidden'];
+
+/**
+ * Reads a persisted preference, including the retired `transparent` value: anyone
+ * who had chosen see-through captions keeps seeing captions rather than landing
+ * in a third state that no longer exists. Anything unrecognised stays hidden.
+ */
+export function resolveTranscriptMode(raw: string | null | undefined): TranscriptMode {
+  if (raw === 'visible' || raw === 'transparent') return 'visible';
+  return 'hidden';
+}
 
 type Caption = CaptionLike;
 
@@ -32,7 +42,6 @@ const LOW_CONFIDENCE = 0.5;
 export default function CaptionsOverlay({ captions, mode }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
-  const hidden = mode === 'hidden';
 
   // The last 3 COLLAPSED captions, derived DURING RENDER rather than stored in
   // state and filled from an effect. Two reasons:
@@ -47,7 +56,7 @@ export default function CaptionsOverlay({ captions, mode }: Props) {
 
   // "Captions paused" when no caption:event for >30s (STT drop resilience)
   useEffect(() => {
-    if (hidden) {
+    if (mode === 'hidden') {
       setPaused(false);
       return;
     }
@@ -58,21 +67,13 @@ export default function CaptionsOverlay({ captions, mode }: Props) {
     check();
     const timer = setInterval(check, 5000);
     return () => clearInterval(timer);
-  }, [captions, hidden]);
+  }, [captions, mode]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [recent]);
 
-  if (hidden || recent.length === 0) return null;
-
-  const transparent = mode === 'transparent';
-  // See-through pill: much lower alpha plus a slight blur so the video reads
-  // through the text. The solid mode keeps the original token untouched.
-  const pill = transparent ? 'bg-caption-bg/20 backdrop-blur-sm' : 'bg-caption-bg';
-  const pausedPill = transparent
-    ? 'bg-caption-bg/20 backdrop-blur-sm'
-    : 'bg-caption-bg/60 backdrop-blur-sm';
+  if (mode === 'hidden' || recent.length === 0) return null;
 
   return (
     <div className="absolute bottom-16 left-0 right-0 px-4 pointer-events-none">
@@ -82,8 +83,8 @@ export default function CaptionsOverlay({ captions, mode }: Props) {
           return (
             <div
               key={c.key}
-              className={`caption-enter px-3 py-1.5 rounded-lg transition-opacity ${
-                lowConf ? `${pill} opacity-50` : pill
+              className={`caption-enter px-3 py-1.5 rounded-lg bg-caption-bg transition-opacity ${
+                lowConf ? 'opacity-50' : ''
               }`}
               title={lowConf ? `Low transcription confidence (${c.confidence?.toFixed(2)})` : undefined}
             >
@@ -95,7 +96,7 @@ export default function CaptionsOverlay({ captions, mode }: Props) {
           );
         })}
         {paused && (
-          <div className={`px-3 py-1.5 rounded-lg text-xs text-muted italic ${pausedPill}`}>
+          <div className="px-3 py-1.5 rounded-lg bg-caption-bg/60 backdrop-blur-sm text-xs text-muted italic">
             Captions paused — waiting for the caption feed to resume…
           </div>
         )}

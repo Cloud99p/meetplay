@@ -18,7 +18,7 @@
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
-import CaptionsOverlay from '../src/components/meeting/Captions.tsx';
+import CaptionsOverlay, { resolveTranscriptMode, TRANSCRIPT_MODES } from '../src/components/meeting/Captions.tsx';
 import { collapseCaptions } from '../src/lib/stt/captionRows.ts';
 
 let failures = 0;
@@ -129,7 +129,10 @@ check('identical repeated final -> one row', collapseCaptions([
 check('empty input -> empty output', collapseCaptions([]).length === 0);
 check('whitespace-only captions are dropped', collapseCaptions([cap({ text: '   ' })]).length === 0);
 
-console.log('--- CaptionsOverlay modes (visible / transparent / hidden) ---');
+console.log('--- CaptionsOverlay modes (visible / hidden) ---');
+
+// Two states, not three. The middle "transparent" setting was tried and removed.
+check('there are exactly two modes', TRANSCRIPT_MODES.length === 2 && TRANSCRIPT_MODES.join() === 'visible,hidden', TRANSCRIPT_MODES.join());
 
 const live = [cap({ text: 'a caption line' })];
 
@@ -137,21 +140,26 @@ check('hidden renders nothing', render(live, 'hidden') === '');
 
 const solid = render(live, 'visible');
 check('visible draws the caption', solid.includes('a caption line'));
-check('visible uses the solid pill', solid.includes('bg-caption-bg') && !solid.includes('bg-caption-bg/20'));
+check('visible uses the solid pill', solid.includes('bg-caption-bg'));
 check('visible is not blurred', !solid.includes('backdrop-blur-sm'));
-
-const seeThrough = render(live, 'transparent');
-check('transparent draws the caption', seeThrough.includes('a caption line'));
-check('transparent uses the see-through pill', seeThrough.includes('bg-caption-bg/20'));
-check('transparent adds the blur', seeThrough.includes('backdrop-blur-sm'));
 
 check('no captions -> nothing drawn even when visible', render([], 'visible') === '');
 
-// The panel Cloud did not want must not appear in any mode.
-check('no sidebar/panel is rendered in any mode', ['visible', 'transparent'].every((m) => {
+check('no see-through styling survives the retired mode', !solid.includes('bg-caption-bg/20'));
+
+// The panel Cloud did not want must never come back.
+check('no sidebar/panel is rendered in any mode', TRANSCRIPT_MODES.every((m) => {
   const html = render(live, m);
   return !html.includes('Transcript') && !html.includes('aria-label="Meeting transcript"');
 }));
+
+// A preference saved by the retired three-mode build must not strand anyone:
+// `transparent` meant "show me captions", so it maps onto `visible`.
+check('legacy transparent preference maps to visible', resolveTranscriptMode('transparent') === 'visible');
+check('visible stays visible', resolveTranscriptMode('visible') === 'visible');
+check('hidden stays hidden', resolveTranscriptMode('hidden') === 'hidden');
+check('no stored preference -> hidden', resolveTranscriptMode(null) === 'hidden');
+check('garbage -> hidden', resolveTranscriptMode('nonsense') === 'hidden');
 
 // One sentence stays one line in the drawn output.
 const dupes = render([
