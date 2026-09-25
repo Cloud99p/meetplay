@@ -463,6 +463,18 @@ async function handleMessage(
       if (!text) return;
       const isFinal = Boolean(payload.isFinal);
       const confidence = typeof payload.confidence === 'number' ? payload.confidence : undefined;
+      // Display-only provenance for a RESUMED Flux turn. `text` may carry just
+      // the NEW TAIL words (so the word accounting below never counts the
+      // shared prefix twice), while `turnText` holds the whole turn and
+      // `turnSeq` identifies it — that is what lets clients render the sentence
+      // as one line instead of two. Deliberately NOT passed to the engine or the
+      // DB transcript: both count words, and the tail is the countable payload.
+      // Clamped so a client cannot push unbounded text into every broadcast.
+      const turnText =
+        typeof payload.turnText === 'string' && payload.turnText.trim()
+          ? payload.turnText.trim().slice(0, 2000)
+          : undefined;
+      const turnSeq = Number.isInteger(payload.turnSeq) ? (payload.turnSeq as number) : undefined;
       // Low-confidence finals: still shown as captions (UI dims them), but
       // excluded from games/recap/DB so shaky turns don't pollute counts.
       const belowFloor = isFinal && typeof confidence === 'number' && confidence < CONFIDENCE_FLOOR;
@@ -516,6 +528,8 @@ async function handleMessage(
           text,
           isFinal,
           confidence,
+          turnText,
+          turnSeq,
           timestamp: Date.now(),
         },
       });

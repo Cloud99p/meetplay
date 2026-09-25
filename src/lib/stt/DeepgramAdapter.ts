@@ -36,6 +36,19 @@ export class DeepgramAdapter implements STTAdapter {
   private lastFinalText = '';
   private lastLevelReport = 0;
 
+  /**
+   * Identity of the CURRENT Flux turn, stamped on every emission of it.
+   *
+   * Resumed turns are why this exists: the eager final and the refined final
+   * are the same sentence, but the refined one carries only its tail words. A
+   * display that only sees text cannot tell "the rest of that sentence" from
+   * "a new sentence that opens with the same words", so the turn identity is
+   * the fact we have to hand over. Bumped on each StartOfTurn, and on every
+   * (re)connect so a new Deepgram session can never merge into a row left over
+   * from the previous one.
+   */
+  private turnSeq = 0;
+
   // Liveness watchdog: the server sends stt:keepalive frames every 10s. If we
   // stop hearing from the server while the socket still LOOKS open (Railway
   // restart, half-open connection, proxy hang), captions would silently stop
@@ -140,6 +153,9 @@ export class DeepgramAdapter implements STTAdapter {
 
   private connect(): void {
     if (this.stopped) return;
+
+    // Fresh session, fresh turn identity — see turnSeq.
+    this.turnSeq++;
 
     try {
       this.ws = new WebSocket(this.proxyUrl());
@@ -257,13 +273,28 @@ export class DeepgramAdapter implements STTAdapter {
    *   - final extends the eager text (shared word prefix) -> emit only the
    *     NEW tail words
    *   - full rewrite / new turn -> emit everything
+   *
+   * `text` is what the server counts. The full turn text rides along as
+   * `turnText` (with the turn's `turnSeq`) so display can join a resumed turn
+   * back into one line without ever counting the prefix twice — see
+   * Utterance.turnText.
    */
   private emitFinalTurnText(text: string, confidence?: number): void {
     if (!text) return;
     const last = this.lastFinalText;
     this.lastFinalText = text;
+    const emit = (counted: string) =>
+      this.onUtterance?.({
+        speakerId: 'local',
+        text: counted,
+        turnText: text,
+        turnSeq: this.turnSeq,
+        timestamp: Date.now(),
+        isFinal: true,
+        confidence,
+      });
     if (!last) {
-      this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true, confidence });
+      emit(text);
       return;
     }
     const strip = (s: string) =>
@@ -275,12 +306,11 @@ export class DeepgramAdapter implements STTAdapter {
     while (i < prev.length && i < curr.length && prev[i] === curr[i]) i++;
     if (i > 0 && i < curr.length) {
       // Resumed turn: eager already counted the shared prefix — emit the tail.
-      const tail = curr.slice(i).join(' ');
-      this.onUtterance?.({ speakerId: 'local', text: tail, timestamp: Date.now(), isFinal: true, confidence });
+      emit(curr.slice(i).join(' '));
       return;
     }
     if (i > 0 && i === curr.length) return; // new text is a prefix of last — fully counted
-    this.onUtterance?.({ speakerId: 'local', text, timestamp: Date.now(), isFinal: true, confidence });
+    emit(text);
   }
 
   private handleMessage(data: unknown): void {
@@ -314,7 +344,9 @@ export class DeepgramAdapter implements STTAdapter {
       const event = msg.event ?? msg.type;
       const text = (msg.transcript ?? '').trim();
       if (event === 'StartOfTurn') {
-        // Fresh turn: forget the previous turn's snapshots.
+        // Fresh turn: forget the previous turn's snapshots and give the new
+        // sentence its own identity, so display can never merge two turns.
+        this.turnSeq++;
         this.lastInterimText = '';
         this.lastFinalText = '';
         return;
@@ -339,11 +371,17 @@ export class DeepgramAdapter implements STTAdapter {
         // v2 Update events resend the FULL accumulated turn text — only emit
         // when it changed, so the captions overlay doesn't get spammed.
         // Games ignore non-final text anyway.
+        //
+        // This is also why the interim carries turnText/turnSeq: on a resumed
+        // turn it re-states words an already-final row is showing, so display
+        // needs to grow that row rather than open a second, overlapping one.
         if (text && text !== this.lastInterimText) {
           this.lastInterimText = text;
           this.onUtterance?.({
             speakerId: 'local',
             text,
+            turnText: text,
+            turnSeq: this.turnSeq,
             timestamp: Date.now(),
             isFinal: false,
           });

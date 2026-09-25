@@ -42,6 +42,12 @@ export interface MeetingState {
     text: string;
     isFinal: boolean;
     confidence?: number;
+    /** Full text of the turn this caption belongs to (see STTAdapter's
+     *  Utterance.turnText). Display-only: word counts read `text`. */
+    turnText?: string;
+    /** Turn identity, so display can tell a growing sentence from a new one
+     *  that opens with the same words (see Utterance.turnSeq). */
+    turnSeq?: number;
     timestamp: number;
   }>;
   gameQuiet: boolean;
@@ -71,7 +77,14 @@ export interface MeetingActions {
   removeParticipant: (targetId: string) => void;
   lockRoom: () => void;
   leave: () => void;
-  sendCaption: (speakerId: string, text: string, isFinal: boolean, confidence?: number) => void;
+  sendCaption: (
+    speakerId: string,
+    text: string,
+    isFinal: boolean,
+    confidence?: number,
+    turnText?: string,
+    turnSeq?: number
+  ) => void;
   submitAnswer: (roundId: string, answer: unknown) => void;
   startGame: (gameType: StartableGameType) => void;
   placeMarketBet: (guess: number) => void;
@@ -1036,9 +1049,22 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     clearSessionSnapshot();
   }, [ws, liveKitRoom]);
 
-  const sendCaption = useCallback((speakerId: string, text: string, isFinal: boolean, confidence?: number) => {
-    ws.send('caption:event', { speakerId, text, isFinal, confidence });
-  }, [ws]);
+  const sendCaption = useCallback(
+    (
+      speakerId: string,
+      text: string,
+      isFinal: boolean,
+      confidence?: number,
+      turnText?: string,
+      turnSeq?: number
+    ) => {
+      // `text` is the countable delta (the tail on a resumed turn) and the
+      // server's word accounting keeps using it; turnText/turnSeq only describe
+      // the turn so display can render the whole sentence as one line.
+      ws.send('caption:event', { speakerId, text, isFinal, confidence, turnText, turnSeq });
+    },
+    [ws]
+  );
 
   // Quiet mode: watch LiveKit for any active screen-share track.
   // When a participant starts presenting, game notifications suspend.
