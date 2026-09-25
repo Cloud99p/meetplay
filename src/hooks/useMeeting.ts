@@ -106,6 +106,30 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
   // Host-controlled grid layout; 16:9 unless the host picks otherwise.
   const [tileShape, setTileShapeState] = useState<import('../types/games').TileShape>('16:9');
+  // WHO has a hand up. This is the single authority for raised hands, kept
+  // separate from the participants array on purpose.
+  //
+  // Why: `hand:raised`/`hand:lowered` carry only { participantId }, so the old
+  // listener did `prev.map(p => p.id === id ? {...p, handRaised: true} : p)` --
+  // which is a SILENT no-op when no entry matches (map returns prev unchanged,
+  // no error, no log). Meanwhile four paths seeded entries with
+  // `handRaised: false` hardcoded, so a snapshot or a re-join could recreate an
+  // entry after the broadcast and wipe the flag. Result: the hand was up on the
+  // server, the UI could never learn it, and nothing threw -- "the raise hand
+  // button does nothing, no visual effect".
+  //
+  // A set sidesteps entry identity entirely: events mutate the set, snapshots
+  // seed it from the server's flags, and render derives from it. The two can no
+  // longer disagree.
+  const [raisedHands, setRaisedHands] = useState<Set<string>>(() => new Set());
+  // THE derivation. `raisedHands` is the single authority; every consumer
+  // reads this, never the raw array flag. A `handRaised` on an incoming
+  // snapshot is ignored here on purpose, so the set stays the one source of
+  // truth and a re-seed can never overwrite a broadcast mid-flight.
+  const participantsWithHands = useMemo(
+    () => participants.map((p) => ({ ...p, handRaised: raisedHands.has(p.id) })),
+    [participants, raisedHands],
+  );
   const rateLimitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [liveKitConnected, setLiveKitConnected] = useState(false);
   const [liveKitReconnecting, setLiveKitReconnecting] = useState(false);
@@ -139,6 +163,28 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     unsubs.push(
       ws.on('room:state', (payload: RoomStateSnapshot) => {
         setParticipants(payload.participants);
+        // Seed the raised-hand authority from the server's own flags. This is
+        // the direction that was missing: the snapshot carries handRaised per
+        // participant, but nothing read it, so a re-seed could not restore a
+        // hand that was already up (and if it arrived after a broadcast, the
+        // array entry's flag was simply overwritten with false).
+        //
+        // The snapshot is the server's FULL truth for the participants it
+        // lists, so replace rather than union: a hand lowered while we were
+        // disconnected would otherwise stay stuck up forever, because a
+        // union-only merge never removes anything.
+        //
+        // Fresh entries are ADDED from the snapshot's flags (the direction that
+        // was missing), but entries the snapshot covers are set to exactly what
+        // the server says. Union-plus-prune, not blind replace, so a stray id
+        // from a broadcast for someone no longer in the room cannot linger.
+        setRaisedHands(() => {
+          const next = new Set<string>();
+          for (const p of payload.participants) {
+            if ((p as { handRaised?: boolean }).handRaised) next.add(p.id);
+          }
+          return next;
+        });
         setTranscriptionEnabled(payload.transcriptionEnabled);
         if (payload.tileShape) setTileShapeState(payload.tileShape);
         setActiveRound(payload.activeRound);
@@ -1095,14 +1141,22 @@ export function useMeeting(): [MeetingState, MeetingActions] {
   // (no badge, no list entry, no way to put the hand back down).
   useEffect(() => {
     const offRaised = ws.on('hand:raised', (payload: { participantId: string }) => {
-      setParticipants((prev) =>
-        prev.map((p) => (p.id === payload.participantId ? { ...p, handRaised: true } : p)),
-      );
+      // Mutate the authority, not the array. The array entry may not exist yet
+      // (or may be re-created later by a snapshot); the set cannot miss.
+      setRaisedHands((prev) => {
+        if (prev.has(payload.participantId)) return prev;
+        const next = new Set(prev);
+        next.add(payload.participantId);
+        return next;
+      });
     });
     const offLowered = ws.on('hand:lowered', (payload: { participantId: string }) => {
-      setParticipants((prev) =>
-        prev.map((p) => (p.id === payload.participantId ? { ...p, handRaised: false } : p)),
-      );
+      setRaisedHands((prev) => {
+        if (!prev.has(payload.participantId)) return prev;
+        const next = new Set(prev);
+        next.delete(payload.participantId);
+        return next;
+      });
     });
     return () => {
       offRaised();
@@ -1120,7 +1174,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
 
   const state: MeetingState = {
     room,
-    participants,
+    participants: participantsWithHands,
     isHost,
     participantId,
     participantName,
