@@ -467,9 +467,13 @@ async function handleMessage(
       // the NEW TAIL words (so the word accounting below never counts the
       // shared prefix twice), while `turnText` holds the whole turn and
       // `turnSeq` identifies it — that is what lets clients render the sentence
-      // as one line instead of two. Deliberately NOT passed to the engine or the
-      // DB transcript: both count words, and the tail is the countable payload.
-      // Clamped so a client cannot push unbounded text into every broadcast.
+      // as one line instead of two. It is PERSISTED alongside the row (nullable
+      // columns, see migrate.ts) so the recap can join the sentence at read time
+      // with the same verified rule, and it rides into the game buffer so quotes
+      // can spell out the whole turn — but it is never counted: the market/flash/
+      // bingo/stats counters and the quiz's word frequencies all read `text`, the
+      // countable tail. Clamped so a client cannot push unbounded text into every
+      // broadcast.
       const turnText =
         typeof payload.turnText === 'string' && payload.turnText.trim()
           ? payload.turnText.trim().slice(0, 2000)
@@ -511,7 +515,14 @@ async function handleMessage(
       // Persist final utterances (synthetic mock IDs may fail FK — that's OK)
       if (isFinal && !belowFloor) {
         try {
-          await saveTranscriptEvent({ roomId, participantId: speakerId, text, isFinal });
+          await saveTranscriptEvent({
+            roomId,
+            participantId: speakerId,
+            text,
+            isFinal,
+            turnText,
+            turnSeq,
+          });
         } catch {
           // speaker may be synthetic mock id — skip DB persistence
         }
@@ -542,7 +553,10 @@ async function handleMessage(
       // Low-confidence finals (below the floor) are excluded too.
       if (isFinal && !belowFloor) {
         const engine = getGameEngine(roomId);
-        engine.addUtterance({ speakerId, text, timestamp: Date.now() });
+        // `text` is what every counter reads. turnText/turnSeq ride along for
+        // QUOTE text only (Who Said That, the recap quiz's "who said this") —
+        // see server/src/stt/turnText.ts and the note in games/quiz.ts.
+        engine.addUtterance({ speakerId, text, turnText, turnSeq, timestamp: Date.now() });
       }
       break;
     }

@@ -18,8 +18,17 @@ const STOPWORDS = new Set([
 
 export interface UtteranceInfo {
   speakerId: string;
+  /**
+   * The COUNTABLE payload. On a resumed Flux turn this is only the new tail
+   * words, so every counter (market/flash counts, bingo marks, speaker stats,
+   * quiz word frequencies) must read this field and never `turnText`.
+   */
   text: string;
   timestamp: number;
+  /** Full text of the turn, when it differs from `text` (see Utterance.turnText). */
+  turnText?: string;
+  /** Identity of the turn (see Utterance.turnSeq). */
+  turnSeq?: number;
 }
 
 export function validateQuote(

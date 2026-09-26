@@ -40,8 +40,16 @@ CREATE TABLE IF NOT EXISTS transcript_events (
   participant_id UUID REFERENCES participants(id) ON DELETE CASCADE,
   text TEXT NOT NULL,
   is_final BOOLEAN DEFAULT false,
+  -- Provenance of a RESUMED turn (display only; see server/src/stt/turnText.ts).
+  -- `text` stays the countable payload, turn_text is the whole sentence.
+  turn_text TEXT,
+  turn_seq INTEGER,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Idempotent migration for existing deployments (re-running init.sql is safe)
+ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_text TEXT;
+ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_seq INTEGER;
 
 CREATE TABLE IF NOT EXISTS game_rounds (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

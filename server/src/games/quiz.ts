@@ -5,6 +5,7 @@
 // game round with gameType 'recap_quiz' and rendered on the recap page.
 
 import type { UtteranceInfo } from './qualityGate.js';
+import { resolveTurnText } from '../stt/turnText.js';
 
 export interface QuizQuestion {
   id: string;
@@ -39,7 +40,12 @@ function wordCount(text: string): number {
   return text.replace(/[^a-z0-9'-]/g, ' ').split(/\s+/).filter(Boolean).length;
 }
 
-/** Frequency of content words across utterances (excluding a skip word). */
+/** Frequency of content words across utterances (excluding a skip word).
+ *
+ * COUNTER — reads `u.text` and must keep doing so. On a resumed Flux turn
+ * `text` is only the new tail words, so counting `turnText` here would count the
+ * shared prefix of the sentence twice. See server/src/stt/turnText.ts.
+ */
 function wordFrequencies(utterances: UtteranceInfo[], skipWord?: string): Map<string, number> {
   const freq = new Map<string, number>();
   for (const u of utterances) {
@@ -71,6 +77,10 @@ export function buildQuizQuestions(ctx: QuizContext): QuizQuestion[] {
 
   // ── Q1: Who said this? ──────────────────────────────────────────────
   if (names.length >= 2) {
+    // The gate stays on the COUNTABLE payload (`u.text`) so the same utterances
+    // qualify as before; only the words a human reads are spelled out in full.
+    // A resumed turn's tail quoted alone would read like a whole sentence
+    // ("it friday"), so the prompt uses the turn's verified wording.
     const quotable = utterances.filter((u) => wordCount(u.text) >= 8);
     const speakerSet = new Map(participants.map((p) => [p.id, p.name]));
     const withKnownSpeaker = quotable.filter((u) => speakerSet.has(u.speakerId));
@@ -81,7 +91,7 @@ export function buildQuizQuestions(ctx: QuizContext): QuizQuestion[] {
       const options = shuffle([correctName, ...others.slice(0, Math.min(3, others.length))]);
       questions.push({
         id: 'who_said',
-        prompt: `Who said: "${pick.text}"?`,
+        prompt: `Who said: "${resolveTurnText(utterances, pick)}"?`,
         options,
         correctIndex: options.indexOf(correctName),
         explanation: `${correctName} said it during the meeting.`,

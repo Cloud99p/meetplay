@@ -73,6 +73,10 @@ CREATE TABLE IF NOT EXISTS transcript_events (
   participant_id UUID REFERENCES participants(id) ON DELETE CASCADE,
   text TEXT NOT NULL,
   is_final BOOLEAN DEFAULT false,
+  -- Provenance of a RESUMED turn (display only; see server/src/stt/turnText.ts).
+  -- `text` stays the countable payload, turn_text is the whole sentence.
+  turn_text TEXT,
+  turn_seq INTEGER,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -123,6 +127,14 @@ ALTER TABLE participants ADD COLUMN IF NOT EXISTS is_camera_off BOOLEAN DEFAULT 
 ALTER TABLE rooms ALTER COLUMN transcription_enabled SET DEFAULT true;
 UPDATE rooms SET transcription_enabled = true
   WHERE transcription_enabled IS NULL OR transcription_enabled = false;
+
+-- Turn provenance on the persisted transcript (2026-09-25). A resumed Flux turn
+-- is persisted as two rows — the eager final in full and the refined final with
+-- only the new tail words — so without the turn identity the recap page had no
+-- way to render one sentence as one line. Additive + nullable: old rows simply
+-- never merge, and `text` (the counted payload) is unchanged.
+ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_text TEXT;
+ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_seq INTEGER;
 
 -- Add the missing ON DELETE CASCADE to the participant FKs. Guarded on
 -- pg_constraint.confdeltype ('c' = CASCADE), so re-running is a no-op.

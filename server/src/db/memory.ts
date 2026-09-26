@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { withSummary, type RecapBase, type RecapData } from './recapSummary.js';
+import { mergeTurnRows } from '../stt/turnText.js';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -42,6 +43,10 @@ export interface TranscriptEventRow {
   participant_id: string;
   text: string;
   is_final: boolean;
+  /** Full text of the turn this row belongs to (resumed turns); display only. */
+  turn_text: string | null;
+  /** Identity of that turn (see Utterance.turnSeq); display only. */
+  turn_seq: number | null;
   created_at: string;
 }
 
@@ -284,6 +289,10 @@ export async function saveTranscriptEvent(opts: {
   participantId: string;
   text: string;
   isFinal: boolean;
+  /** Full text of the turn (resumed turns); never used for counting. */
+  turnText?: string;
+  /** Identity of the turn (see Utterance.turnSeq). */
+  turnSeq?: number;
 }) {
   const id = uuid();
   const row: TranscriptEventRow = {
@@ -292,6 +301,8 @@ export async function saveTranscriptEvent(opts: {
     participant_id: opts.participantId,
     text: opts.text,
     is_final: opts.isFinal,
+    turn_text: opts.turnText ?? null,
+    turn_seq: opts.turnSeq ?? null,
     created_at: nowISO(),
   };
   store.transcriptEvents.set(id, row);
@@ -546,11 +557,21 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
       isHost: p.is_host,
       joinedAt: p.joined_at,
     })),
-    transcript: transcript.map((t) => ({
+    transcript: mergeTurnRows(
+      transcript.map((t) => ({
+        id: t.id,
+        participantName: t.participant_name,
+        speakerId: t.participant_id,
+        text: t.text,
+        turnText: t.turn_text ?? undefined,
+        turnSeq: t.turn_seq ?? undefined,
+        createdAt: t.created_at,
+      }))
+    ).map((t) => ({
       id: t.id,
-      participantName: t.participant_name,
+      participantName: t.participantName,
       text: t.text,
-      createdAt: t.created_at,
+      createdAt: t.createdAt,
     })),
     gameRounds: gameRoundsWithSubs,
     recordings: recordings.map((r) => ({

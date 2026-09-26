@@ -1,5 +1,6 @@
 import type { UtteranceInfo } from './qualityGate.js';
 import { validateQuote } from './qualityGate.js';
+import { resolveTurnText } from '../stt/turnText.js';
 
 export interface WhoSaidThatRound {
   quote: string;
@@ -19,7 +20,8 @@ export function makeWhoSaidThatRound(
   utterances: UtteranceInfo[],
   participants: ParticipantBrief[]
 ): WhoSaidThatRound | null {
-  // Find a valid quote
+  // Find a valid quote. validateQuote() keeps reading `text` (the countable
+  // payload) — only the wording that is SHOWN is spelled out in full below.
   const valid = utterances.filter((u) => validateQuote(u, utterances).pass);
   if (valid.length === 0) return null;
 
@@ -42,7 +44,9 @@ export function makeWhoSaidThatRound(
   ].sort(() => Math.random() - 0.5);
 
   return {
-    quote: pick.text,
+    // The turn's verified wording, not just the tail fragment the buffer holds
+    // ("it friday"): a resumed turn must not be quoted alone.
+    quote: resolveTurnText(utterances, pick),
     speakerId: pick.speakerId,
     options,
   };

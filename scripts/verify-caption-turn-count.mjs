@@ -19,6 +19,11 @@
  *      not the doubled 8, not the 2 of a dropped tail
  *   4. a caption WITHOUT turn fields still counts exactly as before, and is not
  *      given a turn identity it never had
+ *   5. the PERSISTED transcript — what the recap page and its .txt download
+ *      render — joins the pair back into one line, because the turn identity is
+ *      stored beside the countable tail (server/src/db/migrate.ts +
+ *      server/src/stt/turnText.ts). The rows themselves keep the tail: this is
+ *      a read-time join, never a re-count.
  *
  * Usage (from the repo root):
  *   node scripts/verify-caption-turn-count.mjs
@@ -187,6 +192,28 @@ try {
     'plain finals still add up exactly (5 + 4)',
     totalWords === 9,
     `words=${totalWords}`,
+  );
+
+  // ─── The same turn, as the recap reads it back ───────────────────────────
+  // transcript_events keeps the countable tail plus the turn's identity, so the
+  // recap joins the sentence instead of printing "we should ship" and "it friday"
+  // as two lines (and the .txt download with it).
+  const recapRes = await fetch(`${BASE}/api/rooms/${roomId}/recap`, {
+    headers: { authorization: `Bearer ${hostToken}` },
+  });
+  check('recap is readable', recapRes.ok, `status=${recapRes.status}`);
+  const recap = await recapRes.json();
+  const lines = recap?.transcript ?? [];
+  check('recap transcript joins the resumed turn into one line', lines.length === 2, `lines=${lines.length}`);
+  check(
+    'the joined line reads the whole sentence',
+    lines[0]?.text === 'we should ship it friday',
+    `text="${lines[0]?.text}"`,
+  );
+  check(
+    'the plain caption is still its own line',
+    lines[1]?.text === 'hello from the past',
+    `text="${lines[1]?.text}"`,
   );
 
   sock.ws.close();

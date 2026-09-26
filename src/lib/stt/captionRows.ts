@@ -99,6 +99,11 @@ const INTERIM_ONLY_SPEAKERS = new Set(['unknown', 'local']);
 function continuedTurn(last: CaptionLike, cur: CaptionLike): string | null {
   if (cur.turnSeq === undefined || cur.turnSeq !== last.turnSeq) return null;
   if (cur.speakerId !== last.speakerId) return null;
+  // Absent identity is NOT the same identity: two rows whose speaker was lost in
+  // a mapping would otherwise compare equal and join two people's sentences.
+  // Kept in sync with the server copy in server/src/stt/turnText.ts, which
+  // `npm run verify:transcript` runs against these same fixtures.
+  if (!last.speakerId || !cur.speakerId) return null;
   const lastT = normalize(last.turnText ?? last.text);
   const curT = normalize(cur.turnText ?? cur.text);
   const curText = normalize(cur.text);

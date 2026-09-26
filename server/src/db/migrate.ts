@@ -218,6 +218,27 @@ const MIGRATIONS: string[] = [
        RAISE NOTICE 'meetplay: revoked anon/authenticated access to public tables';
      END IF;
    END $$`,
+
+  // 2026-09-25 — TURN PROVENANCE ON THE PERSISTED TRANSCRIPT (recap bug).
+  //
+  // A resumed Flux turn arrives as two finals: the eager one in full ("we should
+  // ship"), then the refined one carrying only the NEW tail ("it friday"). The
+  // tail is the countable payload, so `text` must keep holding exactly that —
+  // and the recap page rendered both rows verbatim, one sentence as two lines.
+  //
+  // The live caption display joins them from the turn identity the adapter
+  // stamps on each emission (Utterance.turnText/turnSeq). A row in this table
+  // cannot recover that identity from its own text: "the rest of that sentence"
+  // and "a new sentence that opens with the same words" are indistinguishable,
+  // which is exactly why the merge rule refuses to guess. So the identity is
+  // PERSISTED here and the recap merges at read time with the same verified rule
+  // (server/src/stt/turnText.ts).
+  //
+  // Both columns are nullable and additive: rows written before this change keep
+  // working (they simply never merge), and `text` is untouched for every counter
+  // — word accounting never reads these columns.
+  `ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_text TEXT`,
+  `ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_seq INTEGER`,
 ];
 
 export async function runMigrations(): Promise<void> {

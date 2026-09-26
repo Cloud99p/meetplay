@@ -1,5 +1,6 @@
 import { withSummary, type RecapBase, type RecapData } from './recapSummary.js';
 import { createPool } from './pool.js';
+import { mergeTurnRows } from '../stt/turnText.js';
 
 export const pool = createPool();
 
@@ -36,6 +37,10 @@ interface TranscriptEventRow {
   participant_id: string;
   text: string;
   is_final: boolean;
+  /** Full text of the turn this row belongs to (resumed turns); display only. */
+  turn_text: string | null;
+  /** Identity of that turn (see Utterance.turnSeq); display only. */
+  turn_seq: number | null;
   created_at: Date | string;
   participant_name: string;
 }
@@ -252,11 +257,15 @@ export async function saveTranscriptEvent(opts: {
   participantId: string;
   text: string;
   isFinal: boolean;
+  /** Full text of the turn (resumed turns); never used for counting. */
+  turnText?: string;
+  /** Identity of the turn (see Utterance.turnSeq). */
+  turnSeq?: number;
 }) {
   const { rows } = await pool.query(
-    `INSERT INTO transcript_events (room_id, participant_id, text, is_final)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [opts.roomId, opts.participantId, opts.text, opts.isFinal]
+    `INSERT INTO transcript_events (room_id, participant_id, text, is_final, turn_text, turn_seq)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [opts.roomId, opts.participantId, opts.text, opts.isFinal, opts.turnText ?? null, opts.turnSeq ?? null]
   );
   return rows[0];
 }
@@ -451,11 +460,21 @@ export async function getRecap(roomId: string): Promise<RecapData | null> {
       isHost: p.is_host,
       joinedAt: toISO(p.joined_at) ?? '',
     })),
-    transcript: transcript.map((t) => ({
+    transcript: mergeTurnRows(
+      transcript.map((t) => ({
+        id: t.id,
+        participantName: t.participant_name,
+        speakerId: t.participant_id,
+        text: t.text,
+        turnText: t.turn_text ?? undefined,
+        turnSeq: t.turn_seq ?? undefined,
+        createdAt: toISO(t.created_at) ?? '',
+      }))
+    ).map((t) => ({
       id: t.id,
-      participantName: t.participant_name,
+      participantName: t.participantName,
       text: t.text,
-      createdAt: toISO(t.created_at) ?? '',
+      createdAt: t.createdAt,
     })),
     gameRounds: gameRoundsWithSubs,
     recordings: recordings.map((r) => ({
