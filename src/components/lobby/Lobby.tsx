@@ -3,6 +3,7 @@ import { FiVideo, FiArrowRight } from 'react-icons/fi';
 import * as api from '../../lib/api';
 import CreateRoom from './CreateRoom';
 import JoinRoom from './JoinRoom';
+import ThemeToggle from '../ThemeToggle';
 
 interface Props {
   onCreate: (name?: string, password?: string) => Promise<string>;
@@ -16,6 +17,12 @@ export default function Lobby({ onCreate }: Props) {
 
   return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center p-4">
+      {/* Per-person display preference. Pinned to the corner rather than placed
+          in the card, because it has nothing to do with creating or joining a
+          room — and every visitor can set it before they join anything. */}
+      <div className="fixed top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-md">
         {/* Logo / Header */}
         <div className="text-center mb-8">

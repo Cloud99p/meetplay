@@ -8,6 +8,7 @@ import { LuHand } from 'react-icons/lu';
 import { RoomContext } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import TranscriptToggle from './TranscriptToggle';
+import ThemeToggle from '../ThemeToggle';
 
 const QUICK_EMOJIS = ['👍', '😂', '❤️', '🎉', '🤔', '👏', '🙌', '🔥'];
 
@@ -192,6 +193,13 @@ export default function ControlBar({
       <button onClick={onToggleParticipants} className={`${btnClass} ${showParticipants ? 'bg-primary/20 text-primary' : ''}`} title="Participants">
         <FiUsers className="w-4 h-4" />
       </button>
+
+      <div className="w-px h-6 bg-border mx-1" />
+
+      {/* Theme — a per-person display preference, so unlike the host-only
+          controls above it is deliberately NOT host-gated: everyone in the
+          call picks their own, and it is never sent to the server. */}
+      <ThemeToggle />
 
       <div className="flex-1" />
 

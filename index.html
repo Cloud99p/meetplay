@@ -2,9 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/nativelyai.svg" />
+    <link rel="icon" type="image/svg+xml" href="/meetplay.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>my-app</title>
+    <title>MeetPlay</title>
+    <!--
+      Applied before first paint so a light-theme visitor never sees a dark
+      flash while React boots. Inline and dependency-free on purpose: anything
+      bundled would run too late to beat the first paint.
+
+      The key is duplicated from src/lib/theme.ts (THEME_KEY) because this
+      script cannot import it. Keep the two in step — a mismatch shows up as a
+      theme that silently resets on reload.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('meetplay.theme');
+          document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
+        } catch (e) {
+          // Storage blocked: fall back to the default rather than throwing
+          // before the app has loaded.
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

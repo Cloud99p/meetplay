@@ -89,14 +89,14 @@ export default function CaptionsOverlay({ captions, mode }: Props) {
               title={lowConf ? `Low transcription confidence (${c.confidence?.toFixed(2)})` : undefined}
             >
               {c.speakerName && (
-                <span className="text-xs font-medium text-primary mr-2">{c.speakerName}</span>
+                <span className="text-xs font-medium text-caption-accent mr-2">{c.speakerName}</span>
               )}
-              <span className="text-sm text-foreground/90">{c.text}</span>
+              <span className="text-sm text-caption-fg/90">{c.text}</span>
             </div>
           );
         })}
         {paused && (
-          <div className="px-3 py-1.5 rounded-lg bg-caption-bg/60 backdrop-blur-sm text-xs text-muted italic">
+          <div className="px-3 py-1.5 rounded-lg bg-caption-bg/60 backdrop-blur-sm text-xs text-caption-fg/70 italic">
             Captions paused — waiting for the caption feed to resume…
           </div>
         )}

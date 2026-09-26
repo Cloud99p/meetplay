@@ -4,29 +4,104 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap');
 @import "tailwindcss";
 
-@theme {
+/* ---------------------------------------------------------------------------
+   THEME TOKENS
+
+   `@theme inline` maps every colour utility onto a `--c-*` variable rather than
+   baking the value in at build time. That indirection is the whole mechanism:
+   the palette is declared twice below (dark, light) and the toggle only has to
+   change `data-theme` on <html>.
+
+   Without `inline`, Tailwind resolves the value while generating the utility, so
+   a later `[data-theme]` override would have nothing to override.
+
+   DARK is the product's own look and the default. LIGHT is opt-in and per-person
+   (see lib/theme.ts): it is a preference in localStorage, never room state, so
+   two people in one call can differ and nobody can change anyone else's.
+   --------------------------------------------------------------------------- */
+@theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-heading: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Dark meeting UI — calm blues & purples */
-  --color-bg-base: oklch(0.141 0.034 264.95);
-  --color-bg-surface: oklch(0.18 0.043 264.95);
-  --color-bg-elevated: oklch(0.22 0.05 264.95);
-  --color-primary: oklch(0.62 0.14 252.5);
-  --color-primary-hover: oklch(0.68 0.14 252.5);
-  --color-secondary: oklch(0.65 0.16 285);
-  --color-accent: oklch(0.7 0.12 182.5);
-  --color-on-primary: oklch(1 0 0);
-  --color-foreground: oklch(0.92 0.01 264.95);
-  --color-muted: oklch(0.64 0.02 264.95);
-  --color-border: oklch(0.28 0.04 264.95);
-  --color-destructive: oklch(0.62 0.2 27.33);
-  --color-success: oklch(0.62 0.2 145);
-  --color-warning: oklch(0.7 0.18 85);
-  --color-ring: oklch(0.62 0.14 252.5);
-  --color-caption-bg: oklch(0 0 0 / 0.55);
-  --color-overlay: oklch(0 0 0 / 0.6);
+  --color-bg-base: var(--c-bg-base);
+  --color-bg-surface: var(--c-bg-surface);
+  --color-bg-elevated: var(--c-bg-elevated);
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-secondary: var(--c-secondary);
+  --color-accent: var(--c-accent);
+  --color-on-primary: var(--c-on-primary);
+  --color-foreground: var(--c-foreground);
+  --color-muted: var(--c-muted);
+  --color-border: var(--c-border);
+  --color-destructive: var(--c-destructive);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-ring: var(--c-ring);
+  --color-caption-bg: var(--c-caption-bg);
+  --color-caption-fg: var(--c-caption-fg);
+  --color-caption-accent: var(--c-caption-accent);
+  --color-overlay: var(--c-overlay);
+}
+
+/* Dark — the shipped identity: near-black navy, calm blues & purples. */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --c-bg-base: oklch(0.141 0.034 264.95);
+  --c-bg-surface: oklch(0.18 0.043 264.95);
+  --c-bg-elevated: oklch(0.22 0.05 264.95);
+  --c-primary: oklch(0.62 0.14 252.5);
+  --c-primary-hover: oklch(0.68 0.14 252.5);
+  --c-secondary: oklch(0.65 0.16 285);
+  --c-accent: oklch(0.7 0.12 182.5);
+  --c-on-primary: oklch(1 0 0);
+  --c-foreground: oklch(0.92 0.01 264.95);
+  --c-muted: oklch(0.64 0.02 264.95);
+  --c-border: oklch(0.28 0.04 264.95);
+  --c-destructive: oklch(0.62 0.2 27.33);
+  --c-success: oklch(0.62 0.2 145);
+  --c-warning: oklch(0.7 0.18 85);
+  --c-ring: oklch(0.62 0.14 252.5);
+  --c-caption-bg: oklch(0 0 0 / 0.55);
+  --c-caption-fg: oklch(0.97 0.005 264.95);
+  --c-caption-accent: oklch(0.62 0.14 252.5);
+  --c-overlay: oklch(0 0 0 / 0.6);
+}
+
+/* Light — opt-in, per person. Same hue story (blue / violet / teal), flipped for
+   a bright background: accents darkened so text on white keeps its contrast, and
+   the lightest surface is now the raised one instead of the darkest. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --c-bg-base: oklch(0.98 0.005 264.95);
+  --c-bg-surface: oklch(1 0 0);
+  --c-bg-elevated: oklch(0.955 0.008 264.95);
+  --c-primary: oklch(0.55 0.16 252.5);
+  --c-primary-hover: oklch(0.5 0.16 252.5);
+  --c-secondary: oklch(0.55 0.17 285);
+  --c-accent: oklch(0.58 0.12 182.5);
+  --c-on-primary: oklch(1 0 0);
+  --c-foreground: oklch(0.25 0.02 264.95);
+  --c-muted: oklch(0.5 0.02 264.95);
+  --c-border: oklch(0.89 0.008 264.95);
+  --c-destructive: oklch(0.55 0.2 27.33);
+  --c-success: oklch(0.55 0.16 145);
+  --c-warning: oklch(0.62 0.15 85);
+  --c-ring: oklch(0.55 0.16 252.5);
+
+  /* Deliberately UNCHANGED from dark, and repeated here so that is explicit
+     rather than an accident of inheritance. These three are drawn ON TOP of
+     video, not on app chrome: a caption pill or a dimming overlay must stay
+     dark with light text in both themes, or light-mode text would land
+     dark-on-dark over the picture and become unreadable. */
+  --c-caption-bg: oklch(0 0 0 / 0.55);
+  --c-caption-fg: oklch(0.97 0.005 264.95);
+  /* The speaker label keeps the same blue in both themes: it names who is
+     talking over the video, so it can never follow the page foreground. */
+  --c-caption-accent: oklch(0.62 0.14 252.5);
+  --c-overlay: oklch(0 0 0 / 0.6);
 }
 
 @layer base {
@@ -37,17 +112,17 @@
     margin: 0;
     padding: 0;
     font-family: var(--font-sans);
-    background-color: var(--color-bg-base);
-    color: var(--color-foreground);
+    background-color: var(--c-bg-base);
+    color: var(--c-foreground);
     -webkit-font-smoothing: antialiased;
   }
   :focus-visible {
-    outline: 2px solid var(--color-primary);
+    outline: 2px solid var(--c-ring);
     outline-offset: 2px;
   }
 }
 
-/* Scrollbar styling for dark meeting UI */
+/* Scrollbar styling — follows the theme rather than being hardcoded dark. */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -55,11 +130,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.3 0.04 264.95);
+  background: var(--c-border);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.4 0.04 264.95);
+  background: var(--c-muted);
 }
 
 /* Meeting layout utilities */
@@ -67,7 +142,7 @@
   display: grid;
   grid-template-rows: 1fr auto;
   height: 100vh;
-  background: var(--color-bg-base);
+  background: var(--c-bg-base);
 }
 
 .video-grid {
