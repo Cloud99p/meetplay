@@ -68,7 +68,9 @@ export default function Lobby({ onCreate }: Props) {
 
         {/* Footer */}
         <p className="text-[10px] text-muted/60 text-center mt-6">
-          Runs entirely on your machine. No data leaves your network.
+          {clerkConfigured
+            ? 'Rooms run peer-to-peer. Video relays through LiveKit and captions through Deepgram; sign-in is handled by Clerk.'
+            : 'Rooms run peer-to-peer. Video relays through LiveKit and captions through Deepgram.'}
         </p>
       </div>
     </div>
