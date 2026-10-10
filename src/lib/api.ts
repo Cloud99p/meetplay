@@ -196,6 +196,27 @@ export async function getRoom(roomId: string): Promise<{ room: Room }> {
   return request<{ room: Room }>(`/api/rooms/${roomId}`);
 }
 
+/**
+ * The signed-in user's own rooms, newest first.
+ *
+ * Auth rides on the shared `request` helper, which injects the Clerk session
+ * Bearer token automatically — so no header here. The server returns an empty
+ * list for a guest rather than an error, matching the app's contract that being
+ * signed out is a normal state, not a failure.
+ */
+export interface MyRoom {
+  id: string;
+  name: string | null;
+  hasPassword: boolean;
+  state: string;
+  createdAt: string;
+}
+
+export async function listMyRooms(): Promise<MyRoom[]> {
+  const data = await request<{ rooms: MyRoom[] }>('/api/rooms');
+  return data.rooms;
+}
+
 export async function getChatHistory(
   roomId: string,
   roomToken: string

@@ -148,6 +148,21 @@ export async function getRoomById(id: string): Promise<RoomRow | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * Rooms owned by one account, newest first.
+ *
+ * Filters on `owner_user_id`, which is set ONLY from a verified Bearer token at
+ * creation (see rooms.ts) — so this cannot be spoofed by a guest hint. Limit is
+ * clamped by the caller; the SQL mirrors the in-memory implementation exactly.
+ */
+export async function listRoomsByOwner(ownerUserId: string, limit = 20): Promise<RoomRow[]> {
+  const { rows } = await pool.query<RoomRow>(
+    `SELECT * FROM rooms WHERE owner_user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+    [ownerUserId, limit]
+  );
+  return rows;
+}
+
 export async function updateRoom(id: string, updates: Record<string, unknown>) {
   const keys = Object.keys(updates);
   if (keys.length === 0) return;

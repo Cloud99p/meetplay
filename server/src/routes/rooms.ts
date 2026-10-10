@@ -10,6 +10,7 @@ import {
   updateRoom,
   setRoomHost,
   promoteToHost,
+  listRoomsByOwner,
 } from '../db/queries.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { isUuid } from '../utils/ids.js';
@@ -30,6 +31,34 @@ const MAX_PARTICIPANTS = 50;
 const cfg = loadConfig();
 
 export async function roomsRoutes(app: FastifyInstance) {
+  /**
+   * List the caller's own rooms, newest first.
+   *
+   * MUST be declared before `/api/rooms/:id` — Fastify matches in registration
+   * order, and a literal segment would otherwise be captured by the `:id`
+   * param route (which would then reject "rooms" as an invalid UUID).
+   *
+   * A guest (no valid token) gets an empty list, NOT a 401: the app treats
+   * "not signed in" as a normal state everywhere else, and the client uses this
+   * to decide whether to show a room history at all.
+   */
+  app.get('/api/rooms', async (req) => {
+    const account = await identify(req.headers.authorization, req.log);
+    if (!account.userId) return { rooms: [] };
+
+    const limit = 20;
+    const rows = await listRoomsByOwner(account.userId, limit);
+    return {
+      rooms: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        hasPassword: Boolean(r.password_hash),
+        state: r.state,
+        createdAt: r.created_at,
+      })),
+    };
+  });
+
   // Create a room
   app.post('/api/rooms', async (req, reply) => {
     const body = (req.body ?? {}) as { name?: string; password?: string; userId?: string };

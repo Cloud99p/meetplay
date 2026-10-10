@@ -200,6 +200,21 @@ export async function getRoomById(id: string) {
   return store.rooms.get(id) ?? null;
 }
 
+/**
+ * Rooms owned by one account, newest first.
+ *
+ * Mirrors pgQueries.listRoomsByOwner: same filter column, same ordering, same
+ * limit semantics. The two stores MUST stay behaviourally identical — dev runs
+ * on memory while prod runs on Postgres, and a divergence here would show up as
+ * "my rooms list works locally but not in prod".
+ */
+export async function listRoomsByOwner(ownerUserId: string, limit = 20) {
+  return [...store.rooms.values()]
+    .filter((r) => r.owner_user_id === ownerUserId)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .slice(0, limit);
+}
+
 export async function updateRoom(id: string, updates: Record<string, unknown>) {
   const row = store.rooms.get(id);
   if (!row) return;

@@ -27,6 +27,7 @@ export const getUserById = impl.getUserById;
 
 export const createRoom = impl.createRoom;
 export const getRoomById = impl.getRoomById;
+export const listRoomsByOwner = impl.listRoomsByOwner;
 export const updateRoom = impl.updateRoom;
 export const setRoomHost = impl.setRoomHost;
 
