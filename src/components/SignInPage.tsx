@@ -40,7 +40,9 @@ function useAfterAuthTarget(): string {
   const next = params.get('next');
   // Only allow same-app hash targets; never an absolute/external URL.
   if (next && next.startsWith('/')) return next;
-  return '/';
+  // Default: the authenticated home. Signing in here means the visitor came to
+  // sign in, so send them somewhere useful rather than back to this page.
+  return '/dashboard';
 }
 
 export default function SignInPage() {
@@ -69,12 +71,22 @@ export default function SignInPage() {
     <div className="min-h-screen w-screen flex flex-col bg-bg text-foreground">
       <header className="flex items-center justify-between px-6 py-4">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate(clerkConfigured ? '/' : '/rooms')}
           className="text-sm text-muted hover:text-foreground transition-colors cursor-pointer"
         >
           ← Back to MeetPlay
         </button>
-        <ModeToggle mode={mode} onChange={setMode} />
+        <div className="flex items-center gap-3">
+          {!clerkConfigured && (
+            <button
+              onClick={() => navigate('/rooms')}
+              className="text-sm text-muted hover:text-foreground transition-colors cursor-pointer"
+            >
+              Continue as guest →
+            </button>
+          )}
+          <ModeToggle mode={mode} onChange={setMode} />
+        </div>
       </header>
 
       <main className="flex-1 flex items-center justify-center px-4 pb-16">

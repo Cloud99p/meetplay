@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FiVideo, FiArrowRight } from 'react-icons/fi';
 import * as api from '../../lib/api';
 import CreateRoom from './CreateRoom';
@@ -6,6 +7,7 @@ import JoinRoom from './JoinRoom';
 import ThemeToggle from '../ThemeToggle';
 import AccountMenu from '../AccountMenu';
 import { clerkConfigured } from '../AccountsProvider';
+import { useSignedIn } from '../../hooks/useSignedIn';
 
 interface Props {
   onCreate: (name?: string, password?: string) => Promise<string>;
@@ -59,7 +61,13 @@ export default function Lobby({ onCreate }: Props) {
         {/* Create view */}
         {view === 'create' && (
           <div className="bg-bg-surface border border-border rounded-xl overflow-hidden">
-            <CreateRoom onCreate={onCreate} />
+            {clerkConfigured ? (
+              <CreateGate>
+                <CreateRoom onCreate={onCreate} />
+              </CreateGate>
+            ) : (
+              <CreateRoom onCreate={onCreate} />
+            )}
           </div>
         )}
 
@@ -75,6 +83,48 @@ export default function Lobby({ onCreate }: Props) {
       </div>
     </div>
   );
+}
+
+/**
+ * Create-side gate: signed-out visitors can BROWSE rooms and JOIN by link, but
+ * creating a room needs an account (rooms are tied to an owner).
+ *
+ * This gates only the Create tab — not the page — so a guest arriving at
+ * /rooms still sees the Join form, which is the whole point of allowing guests.
+ */
+function CreateGate({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
+  const { loading, signedIn } = useSignedIn();
+
+  if (loading) {
+    return (
+      <div className="p-8 flex justify-center">
+        <div className="w-8 h-8 rounded-full border-4 border-border border-t-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!signedIn) {
+    return (
+      <div className="p-6 text-center space-y-4">
+        <h2 className="text-lg font-heading font-semibold text-foreground">
+          Sign in to create a room
+        </h2>
+        <p className="text-sm text-muted">
+          Rooms you create are linked to your account. You can still join a friend's room as a
+          guest — just use the Join tab.
+        </p>
+        <button
+          onClick={() => navigate('/signin')}
+          className="px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer"
+        >
+          Sign in or create an account
+        </button>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 function JoinRoomLookup() {

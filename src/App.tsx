@@ -7,6 +7,9 @@ import MeetingRoom from './components/meeting/MeetingRoom';
 import RecapPage from './components/recap/RecapPage';
 import JoinFlow from './components/lobby/JoinFlow';
 import SignInPage from './components/SignInPage';
+import DashboardPage from './components/DashboardPage';
+import { useSignedIn } from './hooks/useSignedIn';
+import { clerkConfigured } from './components/AccountsProvider';
 
 export default function App() {
   return (
@@ -45,28 +48,47 @@ function AppRoutes() {
 
   const handleLeave = () => {
     actions.leave();
-    navigate('/');
+    navigate('/dashboard');
   };
 
-  // Leaving the recap for the lobby must also clear the ended-room state,
-  // otherwise the "room ended -> recap" effect above re-fires on the next
-  // render and bounces the user straight back to the recap.
+  // Leaving the recap must also clear the ended-room state, otherwise the
+  // "room ended -> recap" effect above re-fires on the next render and bounces
+  // the user straight back to the recap.
   const handleRecapBack = () => {
     actions.leave();
-    navigate('/');
+    navigate(clerkConfigured ? '/dashboard' : '/rooms');
   };
 
   return (
     <Routes>
+      {/* Landing page. With accounts configured this is the sign-in/sign-up
+          page; without a key it must fall through to the room forms, since
+          there is no way to sign in and a sign-in page would be a dead end. */}
       <Route
         path="/"
+        element={clerkConfigured ? <SignInPage /> : <LandingFallback />}
+      />
+      <Route
+        path="/signin"
+        element={clerkConfigured ? <SignInPage /> : <Navigate to="/rooms" replace />}
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <RequireAuth>
+            <DashboardPage />
+          </RequireAuth>
+        }
+      />
+      {/* Room forms. Creating is the gated action (see Lobby), not viewing. */}
+      <Route
+        path="/rooms"
         element={<Lobby state={state} onCreate={handleCreate} />}
       />
       <Route
         path="/join/:roomId"
         element={<JoinFlow state={state} onJoin={handleJoin} />}
       />
-      <Route path="/signin" element={<SignInPage />} />
       <Route
         path="/meeting/:roomId"
         element={<MeetingRoute state={state} actions={actions} onLeave={handleLeave} />}
@@ -78,6 +100,39 @@ function AppRoutes() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/**
+ * Gate for account-only routes.
+ *
+ * Waits for Clerk to resolve before deciding, so a signed-in user reloading
+ * /dashboard is not bounced to the landing page mid-load. When accounts are
+ * unconfigured the route is not gated at all — there is nothing to sign in to.
+ */
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { loading, signedIn, configured } = useSignedIn();
+  if (!configured) return <>{children}</>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg-base flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border-4 border-border border-t-primary animate-spin" />
+      </div>
+    );
+  }
+  if (!signedIn) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+/** Keyless build: `/` shows the room forms rather than a sign-in dead end. */
+function LandingFallback() {
+  const [state, actions] = useMeeting();
+  const navigate = useNavigate();
+  const onCreate = async (name?: string, password?: string) => {
+    const roomId = await actions.createAndJoin(name, password);
+    navigate(`/meeting/${roomId}`);
+    return roomId;
+  };
+  return <Lobby state={state} onCreate={onCreate} />;
 }
 
 function MeetingRoute({
