@@ -28,14 +28,19 @@ COPY . .
 # VITE_STT_MODE=mock|webspeech|deepgram
 # VITE_LIVEKIT_URL=wss://... (optional client-side LiveKit override)
 # VITE_SERVER_URL=https://... (optional server override for the frontend)
+# VITE_CLERK_PUBLISHABLE_KEY=pk_... (enables account sign-in; empty = accounts off)
+# NOTE: CLERK_SECRET_KEY is SERVER-side (read at runtime by /api/me) and is set
+# as a runtime env var, NOT a build arg. Only the publishable key is baked in.
 # NOTE: DEEPGRAM_API_KEY is SERVER-side (read at runtime by the /api/stt
 # proxy) — set it as a runtime env var, NOT a build arg.
 ARG VITE_STT_MODE=deepgram
 ARG VITE_LIVEKIT_URL=
 ARG VITE_SERVER_URL=
+ARG VITE_CLERK_PUBLISHABLE_KEY=
 ENV VITE_STT_MODE=$VITE_STT_MODE \
     VITE_LIVEKIT_URL=$VITE_LIVEKIT_URL \
-    VITE_SERVER_URL=$VITE_SERVER_URL
+    VITE_SERVER_URL=$VITE_SERVER_URL \
+    VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 
 # Build the frontend -> dist/ and compile the server -> server/dist/
 RUN npm run build && cd server && npx tsc -p tsconfig.json
