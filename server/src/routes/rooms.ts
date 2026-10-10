@@ -24,6 +24,7 @@ import { probeLiveKit } from './livekit.js';
 import { loadConfig } from '../config.js';
 import { endMeetingRoom } from '../endMeeting.js';
 import { channelManager } from '../ws/channels.js';
+import { identify } from '../auth/clerk.js';
 
 const MAX_PARTICIPANTS = 50;
 const cfg = loadConfig();
@@ -36,7 +37,19 @@ export async function roomsRoutes(app: FastifyInstance) {
     const password = typeof body.password === 'string' ? body.password : undefined;
 
     const passwordHash = password ? await hashPassword(password) : undefined;
-    const room = await createRoom({ name, passwordHash, hostUserId: body.userId });
+
+    // Account link (optional). The Bearer token, when present and valid, is the
+    // ONLY way `owner_user_id` gets set — `body.userId` is a guest hint and can
+    // never claim ownership. `identify` never throws: an absent/expired/forged
+    // token resolves to anonymous, so a guest still creates a room normally.
+    const account = await identify(req.headers.authorization, req.log);
+
+    const room = await createRoom({
+      name,
+      passwordHash,
+      hostUserId: body.userId,
+      ownerUserId: account.userId,
+    });
     const livekitHealth = await probeLiveKit();
 
     // Host joins automatically at creation

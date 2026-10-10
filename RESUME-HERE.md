@@ -60,8 +60,11 @@ npm run verify:persistence -- create  # create/check/cleanup a room against a DB
    spams `game_rounds_room_id_fkey` errors.
 8. This machine's clock runs ~1–2 min ahead → short-lived signed URLs look
    expired locally; use ≥300s in tests. Production signs with a synced clock.
-9. `npm run dev` now follows `.env`, and `.env` points at the **prod** database.
-   Set `USE_MEMORY_DB=1` locally unless you mean to touch production data.
+9. **Env files are split by environment.** `npm run dev` prefers `.env.dev`
+   (`USE_MEMORY_DB=1`, in-memory store) and falls back to `.env`, which points at
+   the **prod** database. `dev.mjs` REFUSES to start if `.env.dev` contains the
+   production DB host, so local work cannot silently write to pilot data. Use the
+   `:dev` script variants (`npm run db:status:dev`) for env-reading tools.
 10. Docker image is `node:20`; the AWS SDK warns it will need ≥22 from Jan 2027.
 
 ## 4. Open items (nothing urgent)
@@ -71,7 +74,7 @@ npm run verify:persistence -- create  # create/check/cleanup a room against a DB
 | GitHub Actions backup secret `DATABASE_URL` | Cloud | nightly dump skips itself while unset; Supabase free has no backups |
 | Rotate Supabase DB password + R2 token | Cloud | both appeared in chat; after rotating, update Railway + local `.env` |
 | Retention: app purges rooms idle >24h (`ROOM_RETENTION_HOURS`), R2 lifecycle deletes after 30d | decide | 24h is privacy-first; a 30-day pilot may want longer |
-| Point local `.env` at a dev project (or set `USE_MEMORY_DB=1`) | Cloud | otherwise dev writes to pilot data |
+| Point local `.env` at a dev project (or set `USE_MEMORY_DB=1`) | Cloud | ✅ DONE — `.env.dev` (in-memory) is preferred by `npm run dev`; a prod DB in it refuses to boot |
 | `/health` to report DB reachability + fail fast on migration failure | me | recommended after the prod incident with the wrong host |
 | Dockerfile `node:20` → `node:22` | me | removes the AWS SDK warning |
 | Per-room `recording_mode` (audio vs video) | later | businesses will want video; currently a global env flag |

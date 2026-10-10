@@ -27,11 +27,20 @@
     "verify:health": "node --env-file=.env scripts/verify-health.mjs",
     "verify:hand": "node scripts/verify-hand-raise.mjs",
     "verify:transcript": "npx tsx scripts/verify-caption-display.ts",
-    "verify:hand-notify": "npx tsx scripts/verify-hand-notifications.ts"
+    "verify:hand-notify": "npx tsx scripts/verify-hand-notifications.ts",
+    "db:status:dev": "node --env-file=.env.dev scripts/db-status.mjs",
+    "db:fingerprint:dev": "node --env-file=.env.dev scripts/schema-fingerprint.mjs",
+    "verify:persistence:dev": "node --env-file=.env.dev scripts/verify-persistence.mjs",
+    "verify:r2:dev": "node --env-file=.env.dev scripts/verify-r2-live.mjs",
+    "verify:stt:dev": "node --env-file=.env.dev scripts/verify-stt-proxy.mjs",
+    "verify:stt:guards:dev": "node --env-file=.env.dev scripts/verify-stt-guards.mjs",
+    "verify:health:dev": "node --env-file=.env.dev scripts/verify-health.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1133.0",
     "@aws-sdk/s3-request-presigner": "^3.1133.0",
+    "@clerk/backend": "^3.20.1",
+    "@clerk/react": "^6.17.2",
     "@fastify/cors": "^10.0.1",
     "@fastify/rate-limit": "^11.2.0",
     "@fastify/static": "^10.1.2",

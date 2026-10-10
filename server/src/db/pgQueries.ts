@@ -71,12 +71,74 @@ function toISO(value: Date | string | null): string | null {
   return value instanceof Date ? value.toISOString() : value;
 }
 
+// ─── Users (accounts, Clerk) ──────────────────────────
+//
+// The accounts slice sits ON TOP of guest identity (README decision #5: a link
+// joins you with just a display name). Nothing here gates joining.
+//
+// `clerk_user_id` is UNIQUE in the schema and is the join key. There is no
+// webhook yet, so rows are created lazily on the first authenticated request.
+// The UNIQUE constraint is what makes that safe when requests race: the insert
+// that loses the race hits the constraint, and we re-read the winner's row
+// instead of creating a second account for the same person.
+
+export interface UserRow {
+  id: string;
+  clerk_user_id: string;
+  email: string | null;
+  name: string | null;
+  image_url: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+export async function upsertUserByClerkId(opts: {
+  clerkUserId: string;
+  email?: string | null;
+  name?: string | null;
+  imageUrl?: string | null;
+}): Promise<UserRow> {
+  // Single statement, so a concurrent first request cannot interleave.
+  // COALESCE keeps the cached profile when the new value is null (a token-only
+  // identification must not blank out an email we already had).
+  const { rows } = await pool.query<UserRow>(
+    `INSERT INTO users (clerk_user_id, email, name, image_url)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (clerk_user_id) DO UPDATE SET
+       email      = COALESCE(EXCLUDED.email, users.email),
+       name       = COALESCE(EXCLUDED.name, users.name),
+       image_url  = COALESCE(EXCLUDED.image_url, users.image_url),
+       updated_at = now()
+     RETURNING *`,
+    [opts.clerkUserId, opts.email ?? null, opts.name ?? null, opts.imageUrl ?? null],
+  );
+  return rows[0];
+}
+
+export async function getUserByClerkId(clerkUserId: string): Promise<UserRow | null> {
+  const { rows } = await pool.query<UserRow>(
+    `SELECT * FROM users WHERE clerk_user_id = $1`,
+    [clerkUserId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getUserById(id: string): Promise<UserRow | null> {
+  const { rows } = await pool.query<UserRow>(`SELECT * FROM users WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
 // ─── Rooms ────────────────────────────────────────────
 
-export async function createRoom(opts: { name?: string; passwordHash?: string; hostUserId?: string }) {
+export async function createRoom(opts: {
+  name?: string;
+  passwordHash?: string;
+  hostUserId?: string;
+  ownerUserId?: string | null;
+}) {
   const { rows } = await pool.query(
-    `INSERT INTO rooms (name, password_hash, host_user_id) VALUES ($1, $2, $3) RETURNING *`,
-    [opts.name ?? null, opts.passwordHash ?? null, opts.hostUserId ?? null]
+    `INSERT INTO rooms (name, password_hash, host_user_id, owner_user_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+    [opts.name ?? null, opts.passwordHash ?? null, opts.hostUserId ?? null, opts.ownerUserId ?? null]
   );
   return rows[0];
 }

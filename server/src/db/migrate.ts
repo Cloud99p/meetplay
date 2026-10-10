@@ -239,6 +239,56 @@ const MIGRATIONS: string[] = [
   // — word accounting never reads these columns.
   `ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_text TEXT`,
   `ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS turn_seq INTEGER`,
+
+  // 2026-09-26 — ACCOUNTS (Clerk) — the first slice of the parked "users/orgs/auth".
+  //
+  // Deliberately additive and behaviour-preserving. Identity today is client-side
+  // (a localStorage userId, persisted as participants.user_id and
+  // rooms.host_user_id), and README decision #5 keeps guest joining
+  // account-free: someone with a link still gets in with just a display name.
+  // Clerk therefore layers ON TOP. It gives a host an account that owns rooms
+  // and survives a cleared browser — it must never gate the join flow.
+  //
+  // clerk_user_id is the join key and is UNIQUE, so a retried sign-in or a
+  // second browser upserts onto one row instead of duplicating a person. That
+  // matters because there is no webhook yet: rows are created lazily on the
+  // first authenticated request, so the UNIQUE constraint is what makes that
+  // safe under concurrency (two parallel requests race to INSERT; one wins,
+  // the loser treats it as a conflict and re-reads).
+  //
+  // email/name/image_url are a CACHE of Clerk's copy, which stays the source of
+  // truth. They exist so a room list or recap never needs a Clerk round trip.
+  //
+  // RLS is enabled explicitly even though ALTER DEFAULT PRIVILEGES above already
+  // revoked anon/authenticated for tables created later by this role. This table
+  // holds email addresses, so it is denied twice over rather than left to a
+  // default a future migration could relax. The owner role still bypasses RLS
+  // (not FORCE), so the server is unaffected.
+  `CREATE TABLE IF NOT EXISTS users (
+     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     clerk_user_id TEXT UNIQUE NOT NULL,
+     email TEXT,
+     name TEXT,
+     image_url TEXT,
+     created_at TIMESTAMPTZ DEFAULT now(),
+     updated_at TIMESTAMPTZ DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_users_clerk_id ON users(clerk_user_id)`,
+  `ALTER TABLE users ENABLE ROW LEVEL SECURITY`,
+
+  // Link a room to the account that owns it. NULLABLE on purpose: every room
+  // created before this, and every room created by a signed-out host, keeps
+  // NULL and keeps working exactly as it does now. This is what makes an
+  // account worth having — rooms a host can find again — without changing how
+  // an anonymous host is treated.
+  //
+  // Distinct from the existing rooms.host_user_id (the localStorage identity):
+  // that one decides who holds host powers INSIDE a live call and cannot be
+  // rewritten, whereas owner_user_id is the durable account link used by lists
+  // and recap access. Collapsing the two would break the host-heal path in
+  // routes/rooms.ts, which compares host_user_id on rejoin.
+  `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_rooms_owner ON rooms(owner_user_id)`,
 ];
 
 export async function runMigrations(): Promise<void> {

@@ -11,6 +11,12 @@ export interface RoomRow {
   host_participant_id: string | null;
   /** Stable client identity of the room's owner (survives row churn). */
   host_user_id: string | null;
+  /**
+   * Durable ACCOUNT link: `users.id` of the signed-in creator, or null for a
+   * guest-created room. Distinct from host_user_id, which still governs
+   * in-call host powers (see routes/rooms.ts owner-heal). Set on create only.
+   */
+  owner_user_id: string | null;
   transcription_enabled: boolean;
   state: 'active' | 'locked' | 'ended';
   created_at: string;
@@ -91,6 +97,7 @@ class InMemoryStore {
   gameRounds = new Map<string, GameRoundRow>();
   gameSubmissions = new Map<string, GameSubmissionRow>();
   roomRecordings = new Map<string, RoomRecordingRow>();
+  users = new Map<string, UserRow>();
 }
 
 const store = new InMemoryStore();
@@ -99,9 +106,79 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
+// ─── Users (accounts, Clerk) ──────────────────────────
+//
+// The accounts slice sits ON TOP of guest identity (README decision #5: a link
+// joins you with just a display name). Nothing here gates joining.
+//
+// `clerk_user_id` is UNIQUE in the schema and is the join key. There is no
+// webhook yet, so rows are created lazily on the first authenticated request;
+// the UNIQUE constraint is what makes that safe when two requests race —
+// insert-one-wins, the loser re-reads instead of creating a duplicate account.
+
+export interface UserRow {
+  id: string;
+  clerk_user_id: string;
+  email: string | null;
+  name: string | null;
+  image_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function upsertUserByClerkId(opts: {
+  clerkUserId: string;
+  email?: string | null;
+  name?: string | null;
+  imageUrl?: string | null;
+}): Promise<UserRow> {
+  const existing = await getUserByClerkId(opts.clerkUserId);
+  if (existing) {
+    // Refresh the cached profile copy. Clerk stays the source of truth.
+    const updated: UserRow = {
+      ...existing,
+      email: opts.email ?? existing.email,
+      name: opts.name ?? existing.name,
+      image_url: opts.imageUrl ?? existing.image_url,
+      updated_at: nowISO(),
+    };
+    store.users.set(existing.id, updated);
+    return updated;
+  }
+  const id = uuid();
+  const ts = nowISO();
+  const row: UserRow = {
+    id,
+    clerk_user_id: opts.clerkUserId,
+    email: opts.email ?? null,
+    name: opts.name ?? null,
+    image_url: opts.imageUrl ?? null,
+    created_at: ts,
+    updated_at: ts,
+  };
+  store.users.set(id, row);
+  return row;
+}
+
+export async function getUserByClerkId(clerkUserId: string): Promise<UserRow | null> {
+  for (const u of store.users.values()) {
+    if (u.clerk_user_id === clerkUserId) return u;
+  }
+  return null;
+}
+
+export async function getUserById(id: string): Promise<UserRow | null> {
+  return store.users.get(id) ?? null;
+}
+
 // ─── Rooms ──────────────────────────────────────────────────
 
-export async function createRoom(opts: { name?: string; passwordHash?: string; hostUserId?: string }) {
+export async function createRoom(opts: {
+  name?: string;
+  passwordHash?: string;
+  hostUserId?: string;
+  ownerUserId?: string | null;
+}) {
   const id = uuid();
   const row: RoomRow = {
     id,
@@ -109,6 +186,7 @@ export async function createRoom(opts: { name?: string; passwordHash?: string; h
     password_hash: opts.passwordHash ?? null,
     host_participant_id: null,
     host_user_id: opts.hostUserId ?? null,
+    owner_user_id: opts.ownerUserId ?? null,
     transcription_enabled: true,
     state: 'active',
     created_at: nowISO(),

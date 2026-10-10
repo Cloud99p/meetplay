@@ -1,26 +1,82 @@
 // Dev orchestrator: starts the MeetPlay backend and the Vite frontend together,
 // so `npm run dev` gives a fully working app.
 //
-// DATABASE MODE: the backend uses whatever `.env` says:
-//   USE_MEMORY_DB=0 + DATABASE_URL  -> real Postgres (Supabase) — data PERSISTS
+// DATABASE MODE: the backend uses whatever the loaded env file says.
+// `.env.dev` is preferred; `.env` is the fallback (it points at PRODUCTION).
+//   USE_MEMORY_DB=0 + DATABASE_URL  -> real Postgres — data PERSISTS
 //                                      across restarts/sessions
 //   USE_MEMORY_DB=1 (or no DATABASE_URL) -> in-memory store, resets every boot
 // Default when unset: Postgres if DATABASE_URL is present, else in-memory.
+//
+// Set ENV_FILE=<path> to force a specific env file (also disables the
+// production-DB guard, since that is an explicit choice).
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-// Load .env (local secrets: LiveKit cloud keys etc.). Safe if missing.
+// Load the local environment. Prefer `.env.dev` so `npm run dev` can never
+// write to the production database that `.env` points at; fall back to `.env`
+// only when no dev file exists, and say which one was used.
 // process.loadEnvFile is available in Node >= 20.12.
+//
+// Set ENV_FILE=<path> to force a specific file (bypasses the dev guard below,
+// since you are then choosing the environment explicitly).
+const FORCED_ENV_FILE = process.env.ENV_FILE ? path.resolve(process.env.ENV_FILE) : null;
+const ENV_DEV_FILE = path.resolve('.env.dev');
+const ENV_FILE = path.resolve('.env');
+const envFile = FORCED_ENV_FILE ?? (fs.existsSync(ENV_DEV_FILE) ? ENV_DEV_FILE : ENV_FILE);
+const usedDevFile = !FORCED_ENV_FILE && fs.existsSync(ENV_DEV_FILE);
+const isForced = FORCED_ENV_FILE !== null;
 try {
-  if (fs.existsSync(path.resolve('.env'))) {
-    process.loadEnvFile(path.resolve('.env'));
-    console.log('[dev] Loaded .env');
+  if (fs.existsSync(envFile)) {
+    process.loadEnvFile(envFile);
+    console.log(
+      `[dev] Loaded ${path.basename(envFile)}` +
+        (isForced
+          ? ' (forced via ENV_FILE)'
+          : usedDevFile
+            ? ' (dev environment)'
+            : ' (fallback — no .env.dev found)'),
+    );
   }
 } catch (e) {
-  console.warn('[dev] Could not load .env:', e.message);
+  console.warn('[dev] Could not load env file:', e.message);
+}
+
+// LOUD GUARD: dev must never point at the production Supabase database.
+// Refusing to start is the whole point — a silent fallback is how local
+// development ends up writing to live pilot data (see RESUME-HERE gotcha #9).
+// Skipped when ENV_FILE forced a file, because that is an explicit choice.
+const PROD_DB_HOST = 'aws-0-eu-west-2.pooler.supabase.com';
+if (isForced) {
+  console.warn(
+    `[dev] ENV_FILE=${path.basename(envFile)} forced — the production-DB guard is OFF.`,
+  );
+}
+if (usedDevFile) {
+  const dbUrl = process.env.DATABASE_URL ?? '';
+  if (dbUrl.includes(PROD_DB_HOST)) {
+    console.error(
+      `\n[dev] REFUSING TO START: ${path.basename(envFile)} sets DATABASE_URL to the\n` +
+        `      PRODUCTION database (${PROD_DB_HOST}).\n` +
+        `      Remove DATABASE_URL from ${path.basename(envFile)}, or set USE_MEMORY_DB=1.\n` +
+        '      If you really mean it, set ENV_FILE=.env and be aware you are touching pilot data.\n',
+    );
+    process.exit(1);
+  }
+  if (process.env.USE_MEMORY_DB !== '1' && !dbUrl) {
+    console.warn(
+      '[dev] Neither DATABASE_URL nor USE_MEMORY_DB=1 is set — the server will ' +
+        'fall back to the in-memory store.',
+    );
+  }
+} else if (!isForced) {
+  console.warn(
+    '[dev] No .env.dev found — falling back to .env, which points at PRODUCTION.\n' +
+      '      Copy .env.example to .env.dev and set USE_MEMORY_DB=1 for safe local work.',
+  );
 }
 
 // Respect an explicit USE_MEMORY_DB from .env; otherwise fall back to real

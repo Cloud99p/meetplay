@@ -71,6 +71,12 @@ const expectedTables = [
   'game_rounds',
   'game_submissions',
   'room_recordings',
+  // Accounts (Clerk). Listed here because this array is the ONLY thing that
+  // notices a dropped or renamed table — without it the suite keeps passing
+  // "All Postgres checks passed" while account features break at runtime.
+  // That is exactly how the first run after the accounts migration looked
+  // green against the old schema.
+  'users',
 ];
 const { rows: tableRows } = await pool.query(
   `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
@@ -86,6 +92,47 @@ const { rows: idxRows } = await pool.query(
 const indexes = idxRows.map((r) => r.indexname);
 check('index exists: idx_room_recordings_room', indexes.includes('idx_room_recordings_room'));
 check('index exists: idx_transcript_room', indexes.includes('idx_transcript_room'));
+check('index exists: idx_users_clerk_id', indexes.includes('idx_users_clerk_id'));
+check('index exists: idx_rooms_owner', indexes.includes('idx_rooms_owner'));
+
+// ─── Accounts schema (Clerk) ────────────────────────────────────────────────
+// Beyond "the table is there", assert the two properties whose absence would
+// fail SILENTLY rather than loudly:
+//
+//   - clerk_user_id UNIQUE is what makes lazy upsert safe. There is no webhook
+//     yet, so rows are created on first authenticated request; without the
+//     constraint two concurrent requests insert two rows and one real person
+//     silently becomes two accounts, splitting their rooms.
+//   - rooms.owner_user_id NULLABLE is what keeps every pre-accounts room, and
+//     every room made by a signed-out host, working. A NOT NULL here would
+//     break anonymous hosting — the flow README decision #5 protects.
+const { rows: userCols } = await pool.query(
+  `SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'users'`
+);
+const userCol = (n) => userCols.find((c) => c.column_name === n);
+check('users.clerk_user_id exists', Boolean(userCol('clerk_user_id')));
+check('users.clerk_user_id is NOT NULL', userCol('clerk_user_id')?.is_nullable === 'NO');
+check('users.email exists', Boolean(userCol('email')));
+
+const { rows: uniqRows } = await pool.query(
+  `SELECT 1 FROM pg_constraint WHERE conrelid = 'users'::regclass AND contype = 'u'`
+);
+check('users.clerk_user_id is UNIQUE (lazy upsert depends on it)', uniqRows.length > 0);
+
+const { rows: ownerCol } = await pool.query(
+  `SELECT is_nullable FROM information_schema.columns
+   WHERE table_name = 'rooms' AND column_name = 'owner_user_id'`
+);
+check('rooms.owner_user_id exists', ownerCol.length === 1);
+check('rooms.owner_user_id is NULLABLE (anonymous rooms still work)', ownerCol[0]?.is_nullable === 'YES');
+
+// RLS is asserted for the same reason as the other tables: this one holds
+// email addresses, and the Supabase Data API is reachable with a key that
+// ships inside the client bundle.
+const { rows: rlsRows } = await pool.query(
+  `SELECT relrowsecurity FROM pg_class WHERE relname = 'users'`
+);
+check('users has RLS enabled (it stores email addresses)', rlsRows[0]?.relrowsecurity === true);
 
 // gen_random_uuid() must work (bootstrap relies on it for every primary key)
 const { rows: uuidRows } = await pool.query(`SELECT gen_random_uuid() AS id`);

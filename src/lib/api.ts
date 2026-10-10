@@ -1,6 +1,7 @@
 import type { Room } from '../types/meeting';
 import type { ChatMessage } from '../types/chat';
 import { getUserId } from './identity';
+import { getSessionToken } from './auth';
 
 // Same-origin by default: the Vite dev proxy forwards /api and /ws to the
 // backend (see vite.config.ts + scripts/dev.mjs), so the browser never needs
@@ -102,6 +103,13 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   // as FST_ERR_CTP_EMPTY_JSON_BODY -> HTTP 400 before the route handler
   // runs. Body-less POSTs (e.g. endRoom) must send NO content-type.
   const hasBody = opts?.body != null;
+
+  // Attach the Clerk session token when signed in. Fetched per request on
+  // purpose: the tokens are short-lived, so a cached string would expire and
+  // silently drop us to guest. `getSessionToken()` returns null (never throws)
+  // when signed out or when accounts are unconfigured.
+  const sessionToken = await getSessionToken();
+
   const res = await fetch(`${SERVER_URL}${path}`, {
     ...opts,
     // Merge caller headers UNDER the defaults so Content-Type is never
@@ -110,8 +118,12 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
     // object and dropped Content-Type — the server then saw req.body as a
     // raw JSON string instead of a parsed object, and Boolean(body.enabled)
     // silently became false. This broke turning transcription back ON.
+    //
+    // Account token goes UNDER the caller's headers too, so a room token
+    // (room-scoped auth) always wins where a route sets one explicitly.
     headers: {
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
       ...(opts?.headers ?? {}),
     },
   });

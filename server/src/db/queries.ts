@@ -13,6 +13,16 @@ const impl = USE_MEMORY
   ? await import('./memory.js')
   : await import('./pgQueries.js');
 
+// ─── Users (accounts, Clerk) ──────────────────────────
+// Present in BOTH layers on purpose: `USE_MEMORY_DB=1` (the local dev default)
+// loads the in-memory store, so an accounts helper implemented only for
+// Postgres would work in production and silently do nothing locally — the
+// dev/prod divergence that hid two earlier bugs in this project.
+
+export const upsertUserByClerkId = impl.upsertUserByClerkId;
+export const getUserByClerkId = impl.getUserByClerkId;
+export const getUserById = impl.getUserById;
+
 // ─── Rooms ──────────────────────────────────────────────────
 
 export const createRoom = impl.createRoom;

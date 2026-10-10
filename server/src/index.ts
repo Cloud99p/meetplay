@@ -9,6 +9,7 @@ import { roomsRoutes } from './routes/rooms.js';
 import { recapRoutes } from './routes/recap.js';
 import { livekitRoutes } from './routes/livekit.js';
 import { sttRoutes } from './routes/stt.js';
+import { meRoutes } from './routes/me.js';
 import { wsHandler } from './ws/handler.js';
 import { runMigrations } from './db/migrate.js';
 import { pingDb } from './db/queries.js';
@@ -144,6 +145,7 @@ if (!USE_MEMORY) {
 app.get('/ws', { websocket: true }, wsHandler);
 
 await app.register(roomsRoutes);
+await app.register(meRoutes);
 await app.register(recapRoutes);
 await app.register(livekitRoutes);
 await app.register(sttRoutes);
