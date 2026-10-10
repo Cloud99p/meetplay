@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/react';
+import { useNavigate } from 'react-router-dom';
 import { FiUser, FiLogOut, FiChevronDown } from 'react-icons/fi';
 
 /** Tell the server "I'm signed in" so it can materialise the local users row. */
@@ -94,10 +95,10 @@ function SignedInMenu({ name, imageUrl, email }: { name: string; imageUrl?: stri
 }
 
 function SignedOutButton() {
-  const { openSignIn } = useClerk();
+  const navigate = useNavigate();
   return (
     <button
-      onClick={() => openSignIn()}
+      onClick={() => navigate('/signin')}
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-surface border border-border hover:bg-bg-elevated transition-colors cursor-pointer"
     >
       <FiUser className="w-3.5 h-3.5 text-muted" />

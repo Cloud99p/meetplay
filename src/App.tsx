@@ -6,6 +6,7 @@ import Lobby from './components/lobby/Lobby';
 import MeetingRoom from './components/meeting/MeetingRoom';
 import RecapPage from './components/recap/RecapPage';
 import JoinFlow from './components/lobby/JoinFlow';
+import SignInPage from './components/SignInPage';
 
 export default function App() {
   return (
@@ -65,6 +66,7 @@ function AppRoutes() {
         path="/join/:roomId"
         element={<JoinFlow state={state} onJoin={handleJoin} />}
       />
+      <Route path="/signin" element={<SignInPage />} />
       <Route
         path="/meeting/:roomId"
         element={<MeetingRoute state={state} actions={actions} onLeave={handleLeave} />}
