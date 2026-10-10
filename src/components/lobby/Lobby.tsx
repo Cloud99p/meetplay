@@ -4,6 +4,8 @@ import * as api from '../../lib/api';
 import CreateRoom from './CreateRoom';
 import JoinRoom from './JoinRoom';
 import ThemeToggle from '../ThemeToggle';
+import AccountMenu from '../AccountMenu';
+import { clerkConfigured } from '../AccountsProvider';
 
 interface Props {
   onCreate: (name?: string, password?: string) => Promise<string>;
@@ -17,10 +19,15 @@ export default function Lobby({ onCreate }: Props) {
 
   return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center p-4">
-      {/* Per-person display preference. Pinned to the corner rather than placed
-          in the card, because it has nothing to do with creating or joining a
-          room — and every visitor can set it before they join anything. */}
-      <div className="fixed top-4 right-4">
+      {/* Per-person controls. Pinned to the corner rather than placed in the
+          card, because they have nothing to do with creating or joining a room
+          — and every visitor can set them before they join anything.
+
+          The account menu is mounted ONLY when Clerk is configured: `useUser`
+          needs a provider, so rendering it without one throws. Guests with no
+          publishable key simply see the theme toggle, exactly as before. */}
+      <div className="fixed top-4 right-4 flex items-center gap-2">
+        {clerkConfigured && <AccountMenu />}
         <ThemeToggle />
       </div>
       <div className="w-full max-w-md">
