@@ -97,13 +97,20 @@ function SignedInMenu({ name, imageUrl, email }: { name: string; imageUrl?: stri
 function SignedOutButton() {
   const navigate = useNavigate();
   return (
-    <button
-      onClick={() => navigate('/signin')}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-surface border border-border hover:bg-bg-elevated transition-colors cursor-pointer"
-    >
-      <FiUser className="w-3.5 h-3.5 text-muted" />
-      <span className="text-xs font-medium text-foreground">Sign in</span>
-    </button>
+    <div className="flex items-center gap-1.5">
+      <button
+        onClick={() => navigate('/signin')}
+        className="px-3 py-1.5 rounded-full bg-bg-surface border border-border hover:bg-bg-elevated transition-colors cursor-pointer text-xs font-medium text-foreground"
+      >
+        Sign in
+      </button>
+      <button
+        onClick={() => navigate('/signin?mode=signup')}
+        className="px-3 py-1.5 rounded-full bg-primary text-white hover:opacity-90 transition-opacity cursor-pointer text-xs font-medium"
+      >
+        Sign up
+      </button>
+    </div>
   );
 }
 
