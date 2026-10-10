@@ -11,6 +11,15 @@
 // `<SignIn>` / `<SignUp>` must run INSIDE ClerkProvider (they read the Clerk
 // context). AccountsProvider guarantees that; this component is only reachable
 // underneath it.
+//
+// NO `routing` prop on purpose. This app owns the URL hash (HashRouter), and
+// `routing="hash"` would ask Clerk to drive its own multi-step flow through
+// that same hash — Clerk's steps (#/verify-email-address and friends) would be
+// indistinguishable from app routes. Omitting `routing` keeps Clerk's steps in
+// memory instead, so only this app ever writes to `#`.
+//
+// NOTE: not the cause of the blank-form report (that was Clerk still loading).
+// Kept because the hash is genuinely contested otherwise.
 
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -84,14 +93,12 @@ export default function SignInPage() {
           <div className="rounded-2xl border border-border bg-bg-surface p-4">
             {mode === 'signin' ? (
               <SignIn
-                routing="hash"
                 withSignUp
                 signUpUrl="#/signin?mode=signup"
                 fallbackRedirectUrl={afterAuth}
               />
             ) : (
               <SignUp
-                routing="hash"
                 signInUrl="#/signin?mode=signin"
                 fallbackRedirectUrl={afterAuth}
               />
