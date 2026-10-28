@@ -14,6 +14,7 @@ import {
 } from '../db/queries.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { isUuid } from '../utils/ids.js';
+import { cleanRoomName } from '../utils/roomName.js';
 import { generateRoomToken, verifyRoomToken } from '../utils/jwt.js';
 import {
   checkPasswordAttempt,
@@ -62,7 +63,12 @@ export async function roomsRoutes(app: FastifyInstance) {
   // Create a room
   app.post('/api/rooms', async (req, reply) => {
     const body = (req.body ?? {}) as { name?: string; password?: string; userId?: string };
-    const name = typeof body.name === 'string' ? body.name.trim() : undefined;
+    // Untrusted: strip markup and control chars, cap the length. See
+    // utils/roomName.ts for why names are cleaned rather than escaped.
+    const { value: name, altered: nameAltered } = cleanRoomName(body.name);
+    if (nameAltered) {
+      req.log.warn({ event: 'room.name_sanitized' }, 'room name was altered on create');
+    }
     const password = typeof body.password === 'string' ? body.password : undefined;
 
     const passwordHash = password ? await hashPassword(password) : undefined;
@@ -181,10 +187,18 @@ export async function roomsRoutes(app: FastifyInstance) {
       clearPasswordAttempts(id, ip);
     }
 
-    let name =
+    // Participant display names are shown in chat, the people list and game
+    // prompts, so they get the same markup stripping as room names.
+    const rawName =
       (typeof body.participantName === 'string' && body.participantName.trim()) ||
       (typeof body.name === 'string' && body.name.trim())
-        ? ((body.participantName ?? body.name) as string).trim().slice(0, 40)
+        ? ((body.participantName ?? body.name) as string)
+        : undefined;
+    const cleanedName = cleanRoomName(rawName).value;
+
+    let name =
+      cleanedName !== undefined
+        ? cleanedName.slice(0, 40)
         : `Guest ${participants.length + 1}`;
 
     // Identity check: display names must be unique per room. A reconnecting

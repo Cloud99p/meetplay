@@ -19,11 +19,37 @@ const app = Fastify({ logger: true });
 
 // Security headers on every response.
 //
-// No CSP yet, deliberately: the SPA talks to LiveKit over wss, plays media from
-// blob: URLs and uses inline styles, so a strict policy has to be built and
-// verified against a real session or it breaks the app in ways only the browser
-// shows. The headers below are unconditional wins and cost nothing.
-//
+// CSP: the app genuinely needs sources a naive `default-src 'self'` would break,
+// so they are named explicitly rather than the policy being dropped:
+//   - connect-src  wss/https to LiveKit (media signalling) and Deepgram (STT)
+//                  arrive via env at runtime, so the scheme is allowed broadly
+//                  rather than pinning hostnames the build cannot know.
+//   - media-src    blob: — LiveKit attaches remote tracks as blob URLs, and
+//                  recorded playback uses pre-signed R2 URLs.
+//   - img-src      data: and blob: for avatars/canvas game rendering.
+//   - style-src    'unsafe-inline' — the SPA sets inline styles for layout and
+//                  the game canvas; without it every element loses styling.
+//   - script-src   'self' only. This is the directive that actually stops the
+//                  stored-XSS class, so it does NOT get 'unsafe-inline'. Vite's
+//                  production build emits external module scripts, not inline
+//                  ones, so 'self' is sufficient.
+//   - frame-ancestors 'none' duplicates X-Frame-Options for modern browsers.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' wss: https:",
+  "worker-src 'self' blob:",
+  "frame-src 'self' https:",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ');
+
 // Permissions-Policy keeps camera/mic/screen-share for ourselves (the product
 // needs them) and switches off everything the app never asks for.
 app.addHook('onSend', async (_req, reply) => {
@@ -31,6 +57,7 @@ app.addHook('onSend', async (_req, reply) => {
   reply.header('X-Content-Type-Options', 'nosniff');
   reply.header('X-Frame-Options', 'DENY');
   reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  reply.header('Content-Security-Policy', CSP);
   reply.header(
     'Permissions-Policy',
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
