@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useContext } from 'react';
 import type { MeetingState, MeetingActions } from '../../hooks/useMeeting';
 import { useStt } from '../../hooks/useStt';
-import { FiAlertTriangle, FiCircle, FiLink, FiMicOff, FiUsers } from 'react-icons/fi';
+import { FiAlertTriangle, FiCircle, FiLink, FiMicOff, FiUsers, FiMoreHorizontal } from 'react-icons/fi';
 import VideoGrid from './VideoGrid';
 import VideoDebug from './VideoDebug';
 import SpeakerView from './SpeakerView';
@@ -45,6 +45,25 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
   const [followSpeaker, setFollowSpeaker] = useState(true);
   const [recordingNoticeDismissed, setRecordingNoticeDismissed] = useState(false);
   const [captionsNudgeDismissed, setCaptionsNudgeDismissed] = useState(false);
+  // Phone-only "⋯" overflow for secondary top-bar actions (invite, captions).
+  // Those live inline on sm+, where there is room for them.
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef<HTMLDivElement>(null);
+
+  // Close the overflow menu on an outside tap. Without this it stays open over
+  // the video — on a phone there is no hover-out to dismiss it, and the menu
+  // sits above the call, so it would occlude faces until something else was
+  // tapped.
+  useEffect(() => {
+    if (!toolsOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      if (toolsRef.current && !toolsRef.current.contains(e.target as Node)) {
+        setToolsOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [toolsOpen]);
   // Caption display mode. A personal preference, so it lives here in
   // localStorage rather than in room state — the server never needs to agree
   // with the client about it, so there is no wire flag that can drift.
@@ -519,8 +538,12 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             </div>
           )}
 
-          {/* Top-left controls: view mode (everyone) + tile shape (host only) */}
-          <div className="absolute top-4 left-4 flex flex-wrap items-center gap-2">
+          {/* Top-left controls: view mode (everyone) + tile shape (host only).
+              Hosts get an extra button here, so on phones this cluster is the
+              one that collides with the right-hand actions — hence `max-w`
+              and wrapping: the row can fold onto two lines instead of running
+              under the other cluster. */}
+          <div className="absolute top-4 left-4 flex flex-wrap items-center gap-2 max-w-[calc(100%-8.5rem)] sm:max-w-none">
           {/* View mode toggle */}
           <button
             onClick={() => {
@@ -556,10 +579,15 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
           )}
           </div>
 
-          {/* Side panel buttons on video — on mobile (panel overlays) hide them
-              while a panel is open since the panel has its own close X; keep
-              them on sm+ where the panel is in-flow. */}
+          {/* Side panel buttons on video. On phones only the three quick-access
+              panels (Chat, People, Games) stay inline — Invite and the caption
+              toggle move into a "⋯" menu. Previously all five sat here at text
+              size, so as host (one extra button on the left) they ran into each
+              other. The menu is absolutely positioned under the button so it
+              cannot widen the row. On sm+ nothing changes: every button is
+              inline and the menu button is hidden. */}
           <div className={`absolute top-4 right-4 sm:flex gap-1.5 sm:gap-2 ${sidePanelOpen ? 'hidden' : 'flex'} z-40`}>
+            {/* Desktop: Invite inline (unchanged) */}
             <button
               onClick={() => {
                 const url = `${window.location.origin}/#/join/${state.room?.id}`;
@@ -568,7 +596,7 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
                   setTimeout(() => setInviteCopied(false), 2000);
                 });
               }}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated"
               title="Copy invite link"
             >
               <FiLink className="w-3.5 h-3.5" />
@@ -577,32 +605,85 @@ export default function MeetingRoom({ state, actions, onLeave }: Props) {
             <button
               onClick={() => { setShowParticipants(false); setShowGames(false); setShowChat(!showChat); }}
               className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showChat ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              title="Chat"
             >
               Chat
             </button>
             <button
               onClick={() => { setShowChat(false); setShowGames(false); setShowParticipants(!showParticipants); }}
               className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showParticipants ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              title={`People (${state.participants.length})`}
             >
               <FiUsers className="w-3.5 h-3.5 inline-block sm:hidden" />
               <span className="hidden sm:inline">People ({state.participants.length})</span>
-              <span className="sm:hidden">({state.participants.length})</span>
+              <span className="sm:hidden">{state.participants.length}</span>
             </button>
             <button
               onClick={() => { setShowChat(false); setShowParticipants(false); setShowGames(!showGames); }}
               className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${showGames ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              title="Games"
             >
               Games
             </button>
-            {/* Captions on/off for me. Hidden is the default, so nothing changes
-                for anyone who never touches it. */}
+
+            {/* Phones: everything else collapses behind this. */}
+            <div className="relative sm:hidden" ref={toolsRef}>
+              <button
+                onClick={() => setToolsOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={toolsOpen}
+                aria-label="More options"
+                className={`px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${toolsOpen ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              >
+                <FiMoreHorizontal className="w-4 h-4" />
+              </button>
+              {toolsOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-2 w-48 rounded-xl border border-border bg-bg-surface shadow-2xl py-1 z-50"
+                >
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      const url = `${window.location.origin}/#/join/${state.room?.id}`;
+                      navigator.clipboard.writeText(url).then(() => {
+                        setInviteCopied(true);
+                        setTimeout(() => setInviteCopied(false), 2000);
+                      });
+                      setToolsOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left text-foreground hover:bg-bg-elevated transition-colors cursor-pointer"
+                  >
+                    <FiLink className="w-3.5 h-3.5" />
+                    {inviteCopied ? 'Link copied!' : 'Copy invite link'}
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      const next =
+                        TRANSCRIPT_MODES[(TRANSCRIPT_MODES.indexOf(transcriptMode) + 1) % TRANSCRIPT_MODES.length];
+                      changeTranscriptMode(next);
+                      setToolsOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs text-left text-foreground hover:bg-bg-elevated transition-colors cursor-pointer"
+                  >
+                    <span>Captions</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${transcriptMode !== 'hidden' ? 'bg-primary/20 text-primary' : 'bg-bg-elevated text-muted'}`}>
+                      {transcriptMode === 'visible' ? 'Visible' : 'Hidden'}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Desktop: caption toggle inline (unchanged) */}
             <button
               onClick={() => {
                 const next =
                   TRANSCRIPT_MODES[(TRANSCRIPT_MODES.indexOf(transcriptMode) + 1) % TRANSCRIPT_MODES.length];
                 changeTranscriptMode(next);
               }}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${transcriptMode !== 'hidden' ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
+              className={`hidden sm:block px-2.5 sm:px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${transcriptMode !== 'hidden' ? 'bg-primary text-on-primary' : 'bg-caption-bg backdrop-blur-sm text-foreground hover:bg-bg-elevated'}`}
               title="Captions for me: Visible or Hidden"
             >
               Transcript: {transcriptMode === 'visible' ? 'Visible' : 'Hidden'}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LuGamepad2, LuTrophy, LuTarget, LuDices, LuGrid3X3 } from 'react-icons/lu';
+import { LuGamepad2, LuTrophy, LuTarget, LuDices, LuGrid3X3, LuArrowLeft } from 'react-icons/lu';
 import type { GameRound, LeaderboardEntry, RoomStateSnapshot, StartableGameType } from '../../types/games';
 import { getGameTypeLabel, isGameType } from '../../lib/games/engine';
 import WhoSaidThat from './WhoSaidThat';
@@ -58,6 +58,29 @@ export default function GamesPanel({
   onUserMarketBet,
 }: Props) {
   const [tab, setTab] = useState<Tab>('game');
+  // Which game the player is currently looking at. This is deliberately a
+  // CLIENT view choice, not server round state: the server runs bingo (Layer A)
+  // in parallel with quick rounds (Layer B) by design, so rendering straight
+  // from server state showed both at once and left bingo on screen after
+  // switching. `picker` means the menu; anything else means that game only.
+  //
+  // Derived rather than stored, so an externally started round still shows up:
+  // if a round is running and the player has not picked a view, follow the round.
+  const [pickedGame, setPickedGame] = useState<StartableGameType | 'picker' | null>(null);
+  const viewing: StartableGameType | 'picker' =
+    pickedGame ?? (activeRound ? (activeRound.gameType as StartableGameType) : 'picker');
+
+  // A finished round is no longer "running", so the player can back out to the
+  // menu instead of being stuck on a "Play another round" dead end.
+  //
+  // NOTE on bingo: it is NOT a round. Its card lives in server state for the
+  // whole call and deliberately survives switching games — `viewing` hides it
+  // from the panel without touching that state, so returning to bingo shows the
+  // same card, round number and marks. `bingoLive` (passed to GameMenu) tells
+  // the player it is still running while they look at something else.
+  const showPicker = viewing === 'picker' || (!activeRound && pickedGame === null);
+  const showRound = Boolean(activeRound) && viewing === activeRound?.gameType;
+  const showBingoCard = viewing === 'bingo' && Boolean(bingo);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -96,37 +119,88 @@ export default function GamesPanel({
       <div className="flex-1 overflow-y-auto">
         {tab === 'game' && (
           <div className="flex flex-col">
-            {/* Flash WCB (random window, Layer A) — draw attention, so it sits on top */}
+            {/* Flash WCB and the word market are ambient (Layer A) — they are
+                notifications, not games you pick, so they stay visible whatever
+                is selected. */}
             {flash && (
               <FlashBet flash={flash} onBet={onFlashBet} quiet={quiet} />
             )}
-            {/* Always-on market (Layer A) */}
             {market && (
               <WordCountMarket market={market} onBet={onMarketBet} quiet={quiet} />
             )}
-            {/* Member-created word guesses */}
-            <UserMarkets
-              markets={userMarkets}
-              myParticipantId={participantId}
-              error={userMarketError}
-              onCreate={onCreateUserMarket}
-              onBet={onUserMarketBet}
-              quiet={quiet}
-            />
-            {/* Always-on bingo (Layer A) */}
-            {bingo && (
-              <BingoCard bingo={bingo} participantId={participantId} quiet={quiet} />
+
+            {/* One game on screen at a time. `back` is offered whenever a game
+                is selected so the picker is always one tap away — previously
+                the menu vanished as soon as a round started and the only escape
+                was "Play another round" of the SAME game. */}
+            {!showPicker && (
+              <div className="px-4 pt-3">
+                <button
+                  onClick={() => setPickedGame('picker')}
+                  className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <LuArrowLeft className="w-3.5 h-3.5" />
+                  All games
+                </button>
+              </div>
             )}
-            {/* Active quick round (Layer B), if any */}
-            <ActiveRoundView activeRound={activeRound} onSubmit={onSubmit} onStartGame={onStartGame} />
-            {/* Player-chosen game menu — shown whenever no round is running */}
-            {!activeRound && <GameMenu onStartGame={onStartGame} transcriptionEnabled={transcriptionEnabled} />}
+
+            {/* Member-created word guesses — only in the picker, so a chosen
+                game gets the whole panel. */}
+            {showPicker && (
+              <UserMarkets
+                markets={userMarkets}
+                myParticipantId={participantId}
+                error={userMarketError}
+                onCreate={onCreateUserMarket}
+                onBet={onUserMarketBet}
+                quiet={quiet}
+              />
+            )}
+
+            {/* Bingo, only when bingo is the chosen view. Previously rendered on
+                `bingo` alone, which is why it stayed on screen after switching
+                to who_said_that / scrabble. */}
+            {showBingoCard && (
+              <BingoCard bingo={bingo!} participantId={participantId} quiet={quiet} />
+            )}
+
+            {/* The chosen quick round. `key` forces a remount when the round id
+                changes so per-round local state (typed guesses, marked tiles)
+                cannot leak from the previous game. */}
+            {showRound && (
+              <ActiveRoundView
+                key={activeRound!.id}
+                activeRound={activeRound}
+                onSubmit={onSubmit}
+                onPlayAgain={() => onStartGame(viewing as StartableGameType)}
+                onBackToPicker={() => setPickedGame('picker')}
+              />
+            )}
+
+            {/* The picker itself. Shows when nothing is selected. When a round
+                has just been scored, ActiveRoundView renders the result instead
+                (with "Choose a different game"), so this must not also fire —
+                `showRound` already excludes the picker view. */}
+            {showPicker && (
+              <GameMenu
+                onStartGame={(t) => {
+                  setPickedGame(t);
+                  onStartGame(t);
+                }}
+                transcriptionEnabled={transcriptionEnabled}
+                bingoLive={Boolean(bingo && !bingo.winner)}
+                onResumeBingo={() => setPickedGame('bingo')}
+                activeGame={showRound ? (activeRound!.gameType as StartableGameType) : null}
+              />
+            )}
+
             {gameStartError && (
               <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-xs text-destructive">
                 {gameStartError}
               </div>
             )}
-            {!market && !bingo && !activeRound && !flash && (
+            {!market && !bingo && !activeRound && !flash && showPicker && (
               <div className="p-4 text-center space-y-2">
                 <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center mx-auto">
                   <LuGamepad2 className="w-6 h-6 text-primary" />
@@ -178,32 +252,52 @@ const GAME_MENU: Array<{
   },
 ];
 
-/** Player-chosen game launcher. Shown whenever no quick round is running. */
+/** Player-chosen game launcher. Shown whenever no game is selected. */
 function GameMenu({
   onStartGame,
   transcriptionEnabled,
+  bingoLive,
+  onResumeBingo,
+  activeGame,
 }: {
   onStartGame: (gameType: StartableGameType) => void;
   transcriptionEnabled: boolean;
+  /** A bingo card is already dealt and unfinished — offer to resume it. */
+  bingoLive: boolean;
+  onResumeBingo: () => void;
+  /** The game currently being played, if any, so its row reads as active. */
+  activeGame: StartableGameType | null;
 }) {
   return (
     <div className="p-4 border-b border-border space-y-2">
       <p className="text-xs font-medium text-muted uppercase tracking-wider">Start a game</p>
       {GAME_MENU.map((g) => {
         const disabled = g.needsSpeech && !transcriptionEnabled;
+        // Bingo is already dealt: resuming beats re-dealing, which the server
+        // would reject with "Bingo is already in play" anyway.
+        const isLiveBingo = g.type === 'bingo' && bingoLive;
         return (
           <button
             key={g.type}
-            onClick={() => onStartGame(g.type)}
+            onClick={() => (isLiveBingo ? onResumeBingo() : onStartGame(g.type))}
             disabled={disabled}
-            className="w-full text-left flex items-start gap-3 p-3 bg-bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className={`w-full text-left flex items-start gap-3 p-3 bg-bg-surface border rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+              activeGame === g.type ? 'border-primary' : 'border-border hover:border-primary/50'
+            }`}
             title={disabled ? 'Turn on captions to play this one' : undefined}
           >
             <span className="mt-0.5 w-7 h-7 flex items-center justify-center rounded-md bg-primary/15 text-primary flex-shrink-0">
               {g.icon}
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-medium text-foreground">{g.title}</span>
+              <span className="block text-sm font-medium text-foreground">
+                {g.title}
+                {isLiveBingo && (
+                  <span className="ml-2 text-[10px] font-normal text-primary bg-primary/15 px-1.5 py-0.5 rounded">
+                    in play
+                  </span>
+                )}
+              </span>
               <span className="block text-xs text-muted mt-0.5">{g.desc}</span>
               {disabled && (
                 <span className="block text-[10px] text-warning mt-1">Needs captions on</span>
@@ -219,11 +313,15 @@ function GameMenu({
 function ActiveRoundView({
   activeRound,
   onSubmit,
-  onStartGame,
+  onPlayAgain,
+  onBackToPicker,
 }: {
   activeRound: GameRound | null;
   onSubmit: (answer: unknown) => void;
-  onStartGame: (gameType: StartableGameType) => void;
+  /** Start another round of THIS game. */
+  onPlayAgain: () => void;
+  /** Return to the game menu to choose a different game. */
+  onBackToPicker: () => void;
 }) {
   if (!activeRound) return null;
 
@@ -240,18 +338,22 @@ function ActiveRoundView({
           {isGameType(gameType) ? getGameTypeLabel(gameType) : gameType}
         </h4>
         <p className="text-xs text-muted">Round complete — check the leaderboard!</p>
-        <button
-          onClick={() => onStartGame(gameType as StartableGameType)}
-          className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors cursor-pointer active:scale-[0.98]"
-        >
-          Play another round
-        </button>
-        <button
-          onClick={() => onStartGame('bingo')}
-          className="px-4 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-foreground hover:border-primary/50 transition-colors cursor-pointer"
-        >
-          Switch to Buzzword Bingo
-        </button>
+        <div className="flex flex-col gap-2 max-w-xs mx-auto">
+          <button
+            onClick={onPlayAgain}
+            className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors cursor-pointer active:scale-[0.98]"
+          >
+            Play another round
+          </button>
+          {/* Was "Switch to Buzzword Bingo" — a one-way trip to a single other
+              game. Now a general way back, so you are never locked in. */}
+          <button
+            onClick={onBackToPicker}
+            className="px-4 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-foreground hover:border-primary/50 transition-colors cursor-pointer"
+          >
+            Choose a different game
+          </button>
+        </div>
       </div>
     );
   }
