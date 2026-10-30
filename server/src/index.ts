@@ -14,41 +14,35 @@ import { wsHandler } from './ws/handler.js';
 import { runMigrations } from './db/migrate.js';
 import { pingDb } from './db/queries.js';
 import { startRoomCleanup } from './cleanup.js';
+import { buildCsp } from './csp.js';
+import { loadConfig } from './config.js';
 
 const app = Fastify({ logger: true });
 
 // Security headers on every response.
 //
-// CSP: the app genuinely needs sources a naive `default-src 'self'` would break,
-// so they are named explicitly rather than the policy being dropped:
-//   - connect-src  wss/https to LiveKit (media signalling) and Deepgram (STT)
-//                  arrive via env at runtime, so the scheme is allowed broadly
-//                  rather than pinning hostnames the build cannot know.
-//   - media-src    blob: — LiveKit attaches remote tracks as blob URLs, and
-//                  recorded playback uses pre-signed R2 URLs.
-//   - img-src      data: and blob: for avatars/canvas game rendering.
-//   - style-src    'unsafe-inline' — the SPA sets inline styles for layout and
-//                  the game canvas; without it every element loses styling.
-//   - script-src   'self' only. This is the directive that actually stops the
-//                  stored-XSS class, so it does NOT get 'unsafe-inline'. Vite's
-//                  production build emits external module scripts, not inline
-//                  ones, so 'self' is sufficient.
-//   - frame-ancestors 'none' duplicates X-Frame-Options for modern browsers.
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' blob:",
-  "font-src 'self' data:",
-  "connect-src 'self' wss: https:",
-  "worker-src 'self' blob:",
-  "frame-src 'self' https:",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "object-src 'none'",
-].join('; ');
+// The CSP is built once at boot from the real configuration (see csp.ts for the
+// per-directive rationale): LiveKit's host comes from LIVEKIT_URL and the
+// recording bucket from S3_PUBLIC_BASE_URL / R2_PUBLIC_BASE_URL, so the policy
+// names them exactly instead of allowing the whole `https:` scheme.
+//
+// Config is read defensively: a deploy missing LIVEKIT_URL should still boot
+// (the rooms routes fail with their own clear error) rather than crash in a
+// module-level import.
+let CSP: string;
+try {
+  const cfg = loadConfig();
+  CSP = buildCsp({
+    livekitUrl: cfg.livekitUrl,
+    recordingBaseUrl: cfg.recordingS3?.publicBaseUrl ?? '',
+  });
+  if (!cfg.livekitUrl) {
+    app.log.warn('[csp] LIVEKIT_URL is not set — connect-src will allow same-origin only; calls will fail');
+  }
+} catch (e) {
+  app.log.error({ err: e }, '[csp] config load failed — falling back to same-origin policy');
+  CSP = buildCsp({ livekitUrl: '', recordingBaseUrl: '' });
+}
 
 // Permissions-Policy keeps camera/mic/screen-share for ourselves (the product
 // needs them) and switches off everything the app never asks for.
