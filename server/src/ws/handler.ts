@@ -12,6 +12,7 @@ import {
   saveTranscriptEvent,
   updateParticipantMuted,
   updateParticipantCamera,
+  banParticipant,
 } from '../db/queries.js';
 import { channelManager } from './channels.js';
 
@@ -646,16 +647,49 @@ async function handleMessage(
 
     case 'participant:remove': {
       const isHost = await checkIsHost(roomId, senderId);
-      if (!isHost) return;
+      if (!isHost) {
+        // Tell the host why nothing happened instead of a dead button.
+        channelManager.sendTo(roomId, senderId, {
+          type: 'error',
+          payload: { message: 'Only the host can remove participants.' },
+        });
+        return;
+      }
       const targetId = String(payload.targetId ?? '');
       if (!targetId || targetId === senderId) return;
       const target = isUuid(targetId) ? await getParticipantById(targetId) : null;
-      await removeParticipant(targetId);
+
+      // ORDER MATTERS (this is why kicking "did nothing").
+      //
+      // 1. Record the removal BEFORE anything is torn down. The join route
+      //    recreates a missing participant row, so without this durable ban
+      //    the person reloads and comes straight back in.
+      // 2. Tell the target explicitly, while their socket is still open. The
+      //    old code broadcast AFTER closing the socket, so a closed (and
+      //    de-channeled) participant never received the signal — their client
+      //    only saw a dropped connection and reconnected.
+      // 3. Kick media, then the socket, THEN inform the room.
+      if (target?.user_id) {
+        await banParticipant({
+          roomId,
+          userId: target.user_id,
+          participantName: target.name,
+          removedBy: senderId,
+        });
+      }
+
+      channelManager.sendTo(roomId, targetId, {
+        type: 'participant:removed',
+        payload: { targetId },
+      });
+
       if (target) {
-        // Hard-kick from media too, not just the signal layer.
         await removeParticipantFromLiveKit(roomId, resolveLiveKitIdentity(target));
       }
-      channelManager.removeFromRoom(roomId, targetId);
+      // 4003 = "removed by host". The WS client treats this as terminal and
+      // does NOT schedule a reconnect (a plain drop looks like flaky wifi).
+      channelManager.closeWith(roomId, targetId, 4003, 'Removed by host');
+      await removeParticipant(targetId);
       channelManager.broadcast(roomId, {
         type: 'participant:removed',
         payload: { targetId },

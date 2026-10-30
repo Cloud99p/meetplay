@@ -118,6 +118,9 @@ export type ServerMessage =
   // Payload mirrors the limits in ws/handler.ts so a client can back off.
   | { type: 'rate:limited'; payload: { perSec: number; roomLimited: boolean } }
   | { type: 'transcript:toggled'; payload: { enabled: boolean } }
+  // A rejected host action used to fail silently: the button looked dead and
+  // the host had no way to tell "you're not allowed" from "it broke".
+  | { type: 'error'; payload: { message: string } }
   | { type: 'room:state'; payload: RoomStateSnapshot };
 
 export interface SpeakerStatRow {

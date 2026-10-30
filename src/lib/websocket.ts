@@ -60,7 +60,12 @@ export class WebSocketClient {
     this.ws.onclose = (event) => {
       this.emit('_disconnected', { code: event.code });
       this.ws = null;
-      if (this.shouldReconnect && event.code !== 1000 && event.code !== 4001) {
+      // Terminal codes must never reconnect:
+      //   1000  normal close (we left on purpose)
+      //   4001  invalid token
+      //   4003  removed by host — reconnecting would walk straight back in,
+      //         which is exactly the bug a "kick" appeared not to work.
+      if (this.shouldReconnect && event.code !== 1000 && event.code !== 4001 && event.code !== 4003) {
         this.scheduleReconnect();
       }
     };

@@ -58,6 +58,21 @@ const BOOTSTRAP: Array<{ sql: string; optional?: boolean }> = [
        created_at TIMESTAMPTZ DEFAULT now()
      )`,
   },
+  // A host kick must survive the page reload that follows it. Deleting the
+  // participant row alone is NOT a kick: the join route recreates the row on
+  // the next request, so the person walks straight back in. This table is the
+  // durable record that the removal was deliberate — join checks it before
+  // adding anyone back.
+  {
+    sql: `CREATE TABLE IF NOT EXISTS room_bans (
+       room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
+       user_id TEXT NOT NULL,
+       participant_name TEXT,
+       removed_by TEXT,
+       created_at TIMESTAMPTZ DEFAULT now(),
+       PRIMARY KEY (room_id, user_id)
+     )`,
+  },
   {
     sql: `CREATE TABLE IF NOT EXISTS transcript_events (
        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

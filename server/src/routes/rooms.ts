@@ -11,6 +11,7 @@ import {
   setRoomHost,
   promoteToHost,
   listRoomsByOwner,
+    isBannedFromRoom,
 } from '../db/queries.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { isUuid } from '../utils/ids.js';
@@ -185,6 +186,21 @@ export async function roomsRoutes(app: FastifyInstance) {
         return reply.code(401).send({ error: 'Wrong password' });
       }
       clearPasswordAttempts(id, ip);
+    }
+
+    // HOST KICK ENFORCEMENT.
+    //
+    // Deleting the participant row is not a kick on its own: this route
+    // recreates it on the very next request, so a removed user simply reloads
+    // and walks back in. The removal is durably recorded in room_bans, and it
+    // is checked HERE — before any row is created — so reload and rejoin both
+    // hit the same wall. 403 (not 404/409) so the client can tell "you were
+    // removed" apart from "wrong password" or "room full".
+    if (body.userId && (await isBannedFromRoom(id, body.userId))) {
+      return reply.code(403).send({
+        error: 'You were removed from this meeting by the host.',
+        removed: true,
+      });
     }
 
     // Participant display names are shown in chat, the people list and game

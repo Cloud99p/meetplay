@@ -75,6 +75,14 @@ export interface GameSubmissionRow {
   created_at: string;
 }
 
+export interface RoomBanRow {
+  room_id: string;
+  user_id: string;
+  participant_name: string | null;
+  removed_by: string | null;
+  created_at: string;
+}
+
 export interface RoomRecordingRow {
   id: string;
   room_id: string;
@@ -98,6 +106,9 @@ class InMemoryStore {
   gameSubmissions = new Map<string, GameSubmissionRow>();
   roomRecordings = new Map<string, RoomRecordingRow>();
   users = new Map<string, UserRow>();
+  // Keyed `${roomId}:${userId}` — a host kick must survive the reload that
+  // follows it, or the join route simply recreates the participant row.
+  roomBans = new Map<string, RoomBanRow>();
 }
 
 const store = new InMemoryStore();
@@ -279,6 +290,31 @@ export async function getParticipantByRoomAndUser(roomId: string, userId: string
 
 export async function getParticipantById(id: string) {
   return store.participants.get(id) ?? null;
+}
+
+/**
+ * Durable record that a host removed someone on purpose (in-memory mirror of
+ * the Postgres room_bans table). Without this a kicked user simply reloads and
+ * the join route recreates their participant row.
+ */
+export async function banParticipant(opts: {
+  roomId: string;
+  userId: string;
+  participantName?: string | null;
+  removedBy?: string | null;
+}) {
+  const key = `${opts.roomId}:${opts.userId}`;
+  store.roomBans.set(key, {
+    room_id: opts.roomId,
+    user_id: opts.userId,
+    participant_name: opts.participantName ?? null,
+    removed_by: opts.removedBy ?? null,
+    created_at: nowISO(),
+  });
+}
+
+export async function isBannedFromRoom(roomId: string, userId: string) {
+  return store.roomBans.has(`${roomId}:${userId}`);
 }
 
 export async function removeParticipant(id: string) {

@@ -251,6 +251,40 @@ export async function removeParticipant(id: string) {
   await pool.query(`DELETE FROM participants WHERE id = $1`, [id]);
 }
 
+/**
+ * Durable record that a host removed someone on purpose.
+ *
+ * Deleting the participant row is not enough: the join route recreates the row
+ * on the next request, so a kicked user reloads straight back in. Keyed by
+ * user_id (the browser's stable id) because participant ids are per-row and
+ * per-join. Rooms are ephemeral, so the ban dies with the room (ON DELETE
+ * CASCADE) — a new meeting starts with a clean slate.
+ */
+export async function banParticipant(opts: {
+  roomId: string;
+  userId: string;
+  participantName?: string | null;
+  removedBy?: string | null;
+}) {
+  await pool.query(
+    `INSERT INTO room_bans (room_id, user_id, participant_name, removed_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (room_id, user_id) DO UPDATE
+       SET participant_name = EXCLUDED.participant_name,
+           removed_by = EXCLUDED.removed_by,
+           created_at = now()`,
+    [opts.roomId, opts.userId, opts.participantName ?? null, opts.removedBy ?? null]
+  );
+}
+
+export async function isBannedFromRoom(roomId: string, userId: string) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM room_bans WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
+    [roomId, userId]
+  );
+  return rows.length > 0;
+}
+
 export async function promoteToHost(
   participantId: string,
   opts: { claimOwnership?: boolean } = {}

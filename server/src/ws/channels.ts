@@ -99,6 +99,31 @@ class ChannelManager {
     }
     ch.participants.delete(participantId);
   }
+
+  /**
+   * Close a participant's socket with a specific close code.
+   *
+   * The code is the whole point: the browser client treats a bare drop as
+   * flaky wifi and reconnects, so a host kick must arrive as a TERMINAL code
+   * (4003 "removed by host") that the client refuses to reconnect after.
+   * Also drops the entry from the channel map so later broadcasts skip them.
+   */
+  closeWith(roomId: string, participantId: string, code: number, reason: string): boolean {
+    const ch = this.rooms.get(roomId);
+    if (!ch) return false;
+    const entry = ch.participants.get(participantId);
+    let closed = false;
+    if (entry && (entry.ws.readyState === WebSocket.OPEN || entry.ws.readyState === WebSocket.CONNECTING)) {
+      try {
+        entry.ws.close(code, reason);
+        closed = true;
+      } catch {
+        /* socket already gone */
+      }
+    }
+    ch.participants.delete(participantId);
+    return closed;
+  }
 }
 
 export const channelManager = new ChannelManager();
