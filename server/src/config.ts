@@ -47,6 +47,8 @@ export interface ServerConfig {
   databaseUrl?: string;
   useMemoryDb: boolean;
   rateLimitMax: number;
+  /** Rate-limit window in seconds (shared by the global and per-route buckets). */
+  rateLimitWindowSec: number;
   /** POST /api/rooms per IP per minute. See config.ts for the rationale. */
   rateLimitCreateRoom: number;
   /** POST /api/rooms/:id/join per IP per minute. */
@@ -162,17 +164,23 @@ export function loadConfig(): ServerConfig {
     sttMaxPerIp: envCount(env.STT_MAX_PER_IP, 30),
     databaseUrl: env.DATABASE_URL?.trim() || undefined,
     useMemoryDb: !env.DATABASE_URL || env.USE_MEMORY_DB === '1',
-    rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 120),
-    // Per-route limits. The global cap (RATE_LIMIT_MAX, 120/min/IP) is a blunt
-    // backstop: it protects the box, not the expensive work. These buckets are
-    // narrow on the two routes an abuser actually wants:
+    rateLimitMax: envCount(env.RATE_LIMIT_MAX, 120),
+    // Rate-limit windows in SECONDS. This is the knob that matters for how a
+    // hit FEELS: a 60s window means a blocked user sits out up to a minute.
+    // 20s keeps abuse practically throttled (an enumerator gets ~3x fewer
+    // attempts per minute than the count alone suggests) while a normal user
+    // who tripped a limit is back in seconds, not minutes.
+    rateLimitWindowSec: envCount(env.RATE_LIMIT_WINDOW_SEC, 20),
+    // Per-route limits. The global cap (RATE_LIMIT_MAX, 120 per window, per IP)
+    // is a blunt backstop: it protects the box, not the expensive work. These
+    // buckets are narrow on the two routes an abuser actually wants:
     //
     //   createRoom  -- each POST writes DB rows and allots a LiveKit room.
-    //                  10/min lets a normal user start/abandon rooms freely,
-    //                  but not script a room-flood.
+    //                  Lets a normal user start/abandon rooms freely, but not
+    //                  script a room-flood.
     //   join        -- an UNLISTED join returns tokens for an existing room, so
     //                  it is the real prize (a valid token = websocket + games).
-    //                  20/min keeps classroom joins working (one NAT, many
+    //                  Kept generous for classroom joins (one NAT, many
     //                  students) while killing enumeration. Password guesses
     //                  are separately capped at 5 by passwordGuard.ts.
     //   livekitToken -- mints a signed media token. Reconnect loops are
@@ -183,6 +191,10 @@ export function loadConfig(): ServerConfig {
     // Deliberately NOT limited: reads (GET room/messages/recap) and the
     // in-call writes (end, transcript toggle), because a reconnect storm or a
     // game tick must never be rejected for a real participant.
+    //
+    // Counts are per WINDOW, not per minute. With the 20s default these work
+    // out to 30/60/90 per minute at full tilt, which is why the counts stay
+    // low -- the short window is what makes the limit non-punishing.
     rateLimitCreateRoom: envCount(env.RATE_LIMIT_CREATE_ROOM, 10),
     rateLimitJoin: envCount(env.RATE_LIMIT_JOIN, 20),
     rateLimitLivekitToken: envCount(env.RATE_LIMIT_LIVEKIT_TOKEN, 30),

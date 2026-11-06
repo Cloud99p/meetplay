@@ -67,7 +67,11 @@ export async function roomsRoutes(app: FastifyInstance) {
   // the global 120/min. See config.ts rateLimitCreateRoom.
   app.post(
     '/api/rooms',
-    { config: { rateLimit: { max: cfg.rateLimitCreateRoom, timeWindow: '1 minute' } } },
+    {
+      config: {
+        rateLimit: { max: cfg.rateLimitCreateRoom, timeWindow: cfg.rateLimitWindowSec * 1000 },
+      },
+    },
     async (req, reply) => {
       const body = (req.body ?? {}) as { name?: string; password?: string; userId?: string };
       // Untrusted: strip markup and control chars, cap the length. See
@@ -163,7 +167,9 @@ export async function roomsRoutes(app: FastifyInstance) {
   // utils/passwordGuard.ts, which sits inside this route.
   app.post(
     '/api/rooms/:id/join',
-    { config: { rateLimit: { max: cfg.rateLimitJoin, timeWindow: '1 minute' } } },
+    {
+      config: { rateLimit: { max: cfg.rateLimitJoin, timeWindow: cfg.rateLimitWindowSec * 1000 } },
+    },
     async (req, reply) => {
     const { id } = req.params as { id: string };
     // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
@@ -358,7 +364,11 @@ export async function roomsRoutes(app: FastifyInstance) {
   // for reconnects without permitting a session-farm.
   app.post(
     '/api/rooms/:id/livekit-token',
-    { config: { rateLimit: { max: cfg.rateLimitLivekitToken, timeWindow: '1 minute' } } },
+    {
+      config: {
+        rateLimit: { max: cfg.rateLimitLivekitToken, timeWindow: cfg.rateLimitWindowSec * 1000 },
+      },
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       // Reject a non-UUID before it reaches a query: Postgres answers 22P02,

@@ -111,7 +111,7 @@ await app.register(websocket);
 // in sync with bootCfg.rateLimit* rather than hardcoding a second copy.
 await app.register(rateLimit, {
   max: bootCfg.rateLimitMax,
-  timeWindow: '1 minute',
+  timeWindow: bootCfg.rateLimitWindowSec * 1000,
 });
 
 // Health is only "healthy" if the database behind it is usable.
