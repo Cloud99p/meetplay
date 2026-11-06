@@ -62,66 +62,77 @@ export async function roomsRoutes(app: FastifyInstance) {
   });
 
   // Create a room
-  app.post('/api/rooms', async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: string; password?: string; userId?: string };
-    // Untrusted: strip markup and control chars, cap the length. See
-    // utils/roomName.ts for why names are cleaned rather than escaped.
-    const { value: name, altered: nameAltered } = cleanRoomName(body.name);
-    if (nameAltered) {
-      req.log.warn({ event: 'room.name_sanitized' }, 'room name was altered on create');
-    }
-    const password = typeof body.password === 'string' ? body.password : undefined;
+  // Per-route cap: each create writes DB rows and allots a LiveKit room, so
+  // this is the cheapest route to abuse and gets its own tighter bucket than
+  // the global 120/min. See config.ts rateLimitCreateRoom.
+  app.post(
+    '/api/rooms',
+    { config: { rateLimit: { max: cfg.rateLimitCreateRoom, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const body = (req.body ?? {}) as { name?: string; password?: string; userId?: string };
+      // Untrusted: strip markup and control chars, cap the length. See
+      // utils/roomName.ts for why names are cleaned rather than escaped.
+      const { value: name, altered: nameAltered } = cleanRoomName(body.name);
+      if (nameAltered) {
+        req.log.warn({ event: 'room.name_sanitized' }, 'room name was altered on create');
+      }
+      const password = typeof body.password === 'string' ? body.password : undefined;
 
-    const passwordHash = password ? await hashPassword(password) : undefined;
+      const passwordHash = password ? await hashPassword(password) : undefined;
 
-    // Account link (optional). The Bearer token, when present and valid, is the
-    // ONLY way `owner_user_id` gets set — `body.userId` is a guest hint and can
-    // never claim ownership. `identify` never throws: an absent/expired/forged
-    // token resolves to anonymous, so a guest still creates a room normally.
-    const account = await identify(req.headers.authorization, req.log);
+      // Account link (optional). The Bearer token, when present and valid, is the
+      // ONLY way `owner_user_id` gets set — `body.userId` is a guest hint and can
+      // never claim ownership. `identify` never throws: an absent/expired/forged
+      // token resolves to anonymous, so a guest still creates a room normally.
+      const account = await identify(req.headers.authorization, req.log);
 
-    const room = await createRoom({
-      name,
-      passwordHash,
-      hostUserId: body.userId,
-      ownerUserId: account.userId,
-    });
-    const livekitHealth = await probeLiveKit();
+      const room = await createRoom({
+        name,
+        passwordHash,
+        hostUserId: body.userId,
+        ownerUserId: account.userId,
+      });
+      const livekitHealth = await probeLiveKit();
 
-    // Host joins automatically at creation
-    const host = await addParticipant({
-      roomId: room.id,
-      name: 'Host',
-      isHost: true,
-      userId: body.userId,
-    });
-    await setRoomHost(room.id, host.id, body.userId);
-
-    const token = generateRoomToken({
-      roomId: room.id,
-      participantId: host.id,
-      participantName: host.name,
-      isHost: true,
-    });
-
-    return reply.code(201).send({
-      room: {
-        id: room.id,
-        name: room.name,
-        hasPassword: Boolean(room.password_hash),
-        state: room.state,
-        transcriptionEnabled: room.transcription_enabled,
-      },
-      participant: {
-        id: host.id,
-        name: host.name,
+      // Host joins automatically at creation
+      // The participant row is what point awards are keyed on (participants.user_id
+      // -> users.id), so it must carry the VERIFIED account id, not the guest
+      // localStorage hint. body.userId is a random client string and can never
+      // match a users row; without this the host of every call was unpayable.
+      const host = await addParticipant({
+        roomId: room.id,
+        name: 'Host',
         isHost: true,
-      },
-      token,
-      livekitUrl: cfg.livekitUrl,
-      livekitAvailable: livekitHealth.available,
-    });
-  });
+        userId: account.userId ?? body.userId,
+      });
+      await setRoomHost(room.id, host.id, body.userId);
+
+      const token = generateRoomToken({
+        roomId: room.id,
+        participantId: host.id,
+        participantName: host.name,
+        isHost: true,
+      });
+
+      return reply.code(201).send({
+        room: {
+          id: room.id,
+          name: room.name,
+          hasPassword: Boolean(room.password_hash),
+          state: room.state,
+          transcriptionEnabled: room.transcription_enabled,
+        },
+        participant: {
+          id: host.id,
+          name: host.name,
+          isHost: true,
+        },
+        token,
+        livekitUrl: cfg.livekitUrl,
+        livekitAvailable: livekitHealth.available,
+      });
+    }
+  );
 
   // Get room info (for join page)
   app.get('/api/rooms/:id', async (req, reply) => {
@@ -145,7 +156,15 @@ export async function roomsRoutes(app: FastifyInstance) {
   });
 
   // Join a room
-  app.post('/api/rooms/:id/join', async (req, reply) => {
+  // Per-route cap. An unlisted join hands back a token for an existing room,
+  // which is the real prize for an abuser (token = websocket + games). 20/min
+  // still covers a classroom joining through one NAT, while making room-guess
+  // enumeration impractical. Password guessing is capped far tighter (5) by
+  // utils/passwordGuard.ts, which sits inside this route.
+  app.post(
+    '/api/rooms/:id/join',
+    { config: { rateLimit: { max: cfg.rateLimitJoin, timeWindow: '1 minute' } } },
+    async (req, reply) => {
     const { id } = req.params as { id: string };
     // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
     // which surfaced as a 500 on an unauthenticated endpoint.
@@ -156,6 +175,11 @@ export async function roomsRoutes(app: FastifyInstance) {
       password?: string;
       userId?: string;
     };
+
+    // A signed-in account (Bearer Clerk token) takes precedence over the
+    // browser's localStorage guest id. `identify` is optional: a guest join
+    // with no token yields no userId and falls back to body.userId below.
+    const account = await identify(req.headers.authorization, req.log);
 
     const room = await getRoomById(id);
     if (!room) return reply.code(404).send({ error: 'Room not found' });
@@ -245,7 +269,7 @@ export async function roomsRoutes(app: FastifyInstance) {
         roomId: id,
         name,
         isHost: false,
-        userId: body.userId,
+        userId: account?.userId ?? body.userId,
       });
     }
 
@@ -304,9 +328,10 @@ export async function roomsRoutes(app: FastifyInstance) {
       livekitUrl: cfg.livekitUrl,
       livekitAvailable: livekitHealth.available,
     });
-  });
+    }
+  );
 
-  // Get room messages (for late joiners / reload) — REQUIRES a valid room
+  // Get room messages (for late joiners / reload) - REQUIRES a valid room
   // token so the transcript/chat-adjacent data can't be pulled by anyone who
   // guesses a room UUID (privacy hard requirement).
   app.get('/api/rooms/:id/messages', async (req, reply) => {
@@ -326,27 +351,36 @@ export async function roomsRoutes(app: FastifyInstance) {
   });
 
   // Mint a LiveKit join token (requires room token)
-  app.post('/api/rooms/:id/livekit-token', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
-    // which surfaced as a 500 on an unauthenticated endpoint.
-    if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
-    const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  // Per-route cap. Requires a valid room token, so this is already gated; the
+  // limit exists because a genuine client can be reconnecting (LiveKit retry
+  // loops legitimately re-mint), while an unthrottled caller could mint
+  // unlimited media credentials to hold connections open. 30/min leaves room
+  // for reconnects without permitting a session-farm.
+  app.post(
+    '/api/rooms/:id/livekit-token',
+    { config: { rateLimit: { max: cfg.rateLimitLivekitToken, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      // Reject a non-UUID before it reaches a query: Postgres answers 22P02,
+      // which surfaced as a 500 on an unauthenticated endpoint.
+      if (!isUuid(id)) return reply.code(400).send({ error: 'Invalid room id' });
+      const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
 
-    const payload = auth ? verifyRoomToken(auth) : null;
-    if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
-    if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
+      const payload = auth ? verifyRoomToken(auth) : null;
+      if (!payload) return reply.code(401).send({ error: 'Invalid room token' });
+      if (payload.roomId !== id) return reply.code(403).send({ error: 'Token does not match room' });
 
-    const participant = await getParticipantById(payload.participantId);
-    if (!participant) return reply.code(404).send({ error: 'Participant not found' });
+      const participant = await getParticipantById(payload.participantId);
+      if (!participant) return reply.code(404).send({ error: 'Participant not found' });
 
-    const token = await mintJoinToken({
-      roomName: id,
-      identity: participant.livekit_identity ?? participant.id,
-      participantName: participant.name,
-    });
-    return reply.send({ token });
-  });
+      const token = await mintJoinToken({
+        roomName: id,
+        identity: participant.livekit_identity ?? participant.id,
+        participantName: participant.name,
+      });
+      return reply.send({ token });
+    }
+  );
 
   // End meeting (host only)
   app.post('/api/rooms/:id/end', async (req, reply) => {

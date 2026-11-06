@@ -47,6 +47,12 @@ export interface ServerConfig {
   databaseUrl?: string;
   useMemoryDb: boolean;
   rateLimitMax: number;
+  /** POST /api/rooms per IP per minute. See config.ts for the rationale. */
+  rateLimitCreateRoom: number;
+  /** POST /api/rooms/:id/join per IP per minute. */
+  rateLimitJoin: number;
+  /** POST /api/rooms/:id/livekit-token per IP per minute. */
+  rateLimitLivekitToken: number;
   port: number;
   staticDir: string;
   omnilearnUrl: string;
@@ -157,6 +163,29 @@ export function loadConfig(): ServerConfig {
     databaseUrl: env.DATABASE_URL?.trim() || undefined,
     useMemoryDb: !env.DATABASE_URL || env.USE_MEMORY_DB === '1',
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 120),
+    // Per-route limits. The global cap (RATE_LIMIT_MAX, 120/min/IP) is a blunt
+    // backstop: it protects the box, not the expensive work. These buckets are
+    // narrow on the two routes an abuser actually wants:
+    //
+    //   createRoom  -- each POST writes DB rows and allots a LiveKit room.
+    //                  10/min lets a normal user start/abandon rooms freely,
+    //                  but not script a room-flood.
+    //   join        -- an UNLISTED join returns tokens for an existing room, so
+    //                  it is the real prize (a valid token = websocket + games).
+    //                  20/min keeps classroom joins working (one NAT, many
+    //                  students) while killing enumeration. Password guesses
+    //                  are separately capped at 5 by passwordGuard.ts.
+    //   livekitToken -- mints a signed media token. Reconnect loops are
+    //                  legitimate here, so this stays looser than join.
+    //   stt         -- /api/stt is a WebSocket and never hits the REST limiter;
+    //                  its caps live in stt.ts (concurrency, per-IP, bytes).
+    //
+    // Deliberately NOT limited: reads (GET room/messages/recap) and the
+    // in-call writes (end, transcript toggle), because a reconnect storm or a
+    // game tick must never be rejected for a real participant.
+    rateLimitCreateRoom: envCount(env.RATE_LIMIT_CREATE_ROOM, 10),
+    rateLimitJoin: envCount(env.RATE_LIMIT_JOIN, 20),
+    rateLimitLivekitToken: envCount(env.RATE_LIMIT_LIVEKIT_TOKEN, 30),
     port: Number(env.PORT ?? 3001),
     staticDir: env.STATIC_DIR ?? '',
     omnilearnUrl: env.OMNILEARN_URL?.trim() || 'http://localhost:8080',

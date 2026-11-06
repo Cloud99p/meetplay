@@ -14,7 +14,7 @@ import { wsHandler } from './ws/handler.js';
 import { runMigrations } from './db/migrate.js';
 import { pingDb } from './db/queries.js';
 import { startRoomCleanup } from './cleanup.js';
-import { buildCsp } from './csp.js';
+import { buildCsp, clerkOrigin, themeScriptHashes } from './csp.js';
 import { loadConfig } from './config.js';
 
 const app = Fastify({ logger: true });
@@ -30,15 +30,33 @@ const app = Fastify({ logger: true });
 // (the rooms routes fail with their own clear error) rather than crash in a
 // module-level import.
 let CSP: string;
+// Read once, at module level, so the rate-limit registration below sees the
+// same values as the CSP/route code. The try/catch only guards CSP building:
+// loadConfig itself never throws, it falls back to defaults.
+const bootCfg = loadConfig();
 try {
-  const cfg = loadConfig();
+  const cfg = bootCfg;
+  // The theme script is inline and must run before first paint, so it is
+  // allowed by hash. The hash is taken from the HTML we actually serve, which
+  // is the only way it cannot drift out of step with the script itself.
+  const staticDirForCsp = process.env.STATIC_DIR ?? path.resolve(process.cwd(), 'dist');
+  let themeHashes: string[] = [];
+  try {
+    const html = fs.readFileSync(path.join(staticDirForCsp, 'index.html'), 'utf8');
+    themeHashes = themeScriptHashes(html);
+  } catch {
+    // No built HTML (API-only boot): nothing inline to allow.
+  }
   CSP = buildCsp({
     livekitUrl: cfg.livekitUrl,
     recordingBaseUrl: cfg.recordingS3?.publicBaseUrl ?? '',
+    clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY ?? process.env.VITE_CLERK_PUBLISHABLE_KEY,
+    themeScriptHash: themeHashes[0],
   });
   if (!cfg.livekitUrl) {
     app.log.warn('[csp] LIVEKIT_URL is not set — connect-src will allow same-origin only; calls will fail');
   }
+  app.log.info(`[csp] theme script ${themeHashes.length} hash(es); Clerk ${clerkOrigin(process.env.CLERK_PUBLISHABLE_KEY ?? process.env.VITE_CLERK_PUBLISHABLE_KEY ?? '').length ? 'origin allowed' : 'not configured'}`);
 } catch (e) {
   app.log.error({ err: e }, '[csp] config load failed — falling back to same-origin policy');
   CSP = buildCsp({ livekitUrl: '', recordingBaseUrl: '' });
@@ -85,10 +103,14 @@ await app.register(cors, {
 });
 await app.register(websocket);
 
-// Rate limit all REST APIs (privacy/security NFR): 120 req/min per IP,
-// slightly stricter on room creation/join to deter abuse.
+// Rate limit all REST APIs (privacy/security NFR). The global value is a blunt
+// backstop -- per-IP, 120 req/min: it protects the process, not the expensive
+// work. The routes worth abusing carry their own tighter buckets in their own
+// files (rooms.ts: create/join/livekit-token; stt.ts caps its WebSocket
+// separately, since a WS never passes through this hook). Keep these numbers
+// in sync with bootCfg.rateLimit* rather than hardcoding a second copy.
 await app.register(rateLimit, {
-  max: Number(process.env.RATE_LIMIT_MAX ?? 120),
+  max: bootCfg.rateLimitMax,
   timeWindow: '1 minute',
 });
 
@@ -117,7 +139,25 @@ app.get('/health', async (req, reply) => {
 // unexpected answers a flat 500 while the detail stays in the server log.
 app.setErrorHandler((err: unknown, req, reply) => {
   const e = err as { code?: string; statusCode?: number; message?: string };
-  const status = e.statusCode ?? 500;
+  // @fastify/rate-limit throws its 429 with a status *code* but no
+  // `statusCode` field, so `e.statusCode` is undefined here and the 429 fell
+  // through to the flat 500 branch. It also satisfies why the first probe
+  // returned "Too many requests" via a generic handler path. Match both shapes.
+  const status = e.statusCode ?? (e.code === 'FST_ERR_RATE_LIMIT' ? 429 : 500);
+
+  // @fastify/rate-limit throws a 429 rather than sending the reply. Its
+  // message embeds the window and the caller's IP, which we don't echo back;
+  // Retry-After is the only thing a well-behaved client needs, and it is
+  // honoured by browsers/fetch retries. RateLimit-* headers are left to the
+  // plugin (addHeaders is on by default for allowed requests).
+  if (status === 429) {
+    req.log.warn({ err }, 'rate limit exceeded');
+    const retryAfter = (err as { rateLimit?: { ttl?: number } }).rateLimit?.ttl;
+    if (typeof retryAfter === 'number' && retryAfter > 0) {
+      reply.header('Retry-After', Math.ceil(retryAfter / 1000).toString());
+    }
+    return reply.code(429).send({ error: 'Too many requests' });
+  }
 
   if (e.code === '22P02') {
     // invalid input syntax (bad uuid / malformed value). See utils/ids.ts.

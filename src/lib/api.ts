@@ -46,7 +46,19 @@ export interface RecapData {
     duration: number;
   };
   participants: Array<{ id: string; name: string; isHost: boolean; joinedAt: string }>;
-  transcript: Array<{ id: string; participantName: string; text: string; createdAt: string }>;
+  transcript: Array<{
+    id: string;
+    participantName: string;
+    text: string;
+    /**
+     * NaijaVox override. Present only when Deepgram's English-flattened text
+     * was replaced by the real Pidgin capture; `text` keeps what Deepgram
+     * said so the recap can show both.
+     */
+    correctedText?: string;
+    correctionReason?: string;
+    createdAt: string;
+  }>;
   gameRounds: Array<{
     id: string;
     gameType: string;
@@ -129,6 +141,19 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    // 429 carries a server-authored message plus Retry-After. Surface the
+    // wait as friendly copy rather than "Request failed (429)", because the
+    // user's only sensible action is to wait a few seconds and retry.
+    if (res.status === 429) {
+      const retryAfter = Number(res.headers.get('Retry-After'));
+      const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 0;
+      throw new ApiError(
+        wait > 0
+          ? `Too many requests — try again in ${wait}s.`
+          : 'Too many requests — try again in a moment.',
+        429,
+      );
+    }
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
@@ -215,6 +240,91 @@ export interface MyRoom {
 export async function listMyRooms(): Promise<MyRoom[]> {
   const data = await request<{ rooms: MyRoom[] }>('/api/rooms');
   return data.rooms;
+}
+
+/** Identity as the SERVER sees it. `enabled:false` means accounts are off. */
+export interface MeResponse {
+  enabled: boolean;
+  authenticated: boolean;
+  user: {
+    id: string;
+    clerkUserId: string;
+    name: string;
+    email: string;
+    imageUrl?: string;
+  } | null;
+}
+
+/**
+ * Read-only identity check.
+ *
+ * Uses GET on purpose: the server's GET handler never writes, so opening the
+ * account page cannot create a `users` row as a side effect. Row creation
+ * happens in `syncAccount()` below, called deliberately after sign-in.
+ */
+export async function getMe(): Promise<MeResponse> {
+  return request<MeResponse>('/api/me');
+}
+
+/** Confirm a session and materialise the local user row. */
+export async function syncAccount(): Promise<MeResponse> {
+  return request<MeResponse>('/api/me', { method: 'POST', body: '{}' });
+}
+
+/**
+ * Profile + progression for the signed-in caller.
+ *
+ * Read-only on the server (it never creates a user row), so opening the
+ * profile page before the first authenticated write is safe. `rank` is
+ * derived server-side from `points`, never stored, so the tier table can
+ * change without a backfill.
+ */
+export interface ProfileResponse {
+  enabled: boolean;
+  authenticated: boolean;
+  profile: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    imageUrl: string | null;
+    createdAt: string | null;
+    rank: {
+      points: number;
+      tier: string;
+      tierLabel: string;
+      division: string | null;
+      label: string;
+      colour: string;
+      emoji: string;
+      pointsIntoTier: number;
+      pointsForTier: number;
+      toNextTier: number;
+      /** 0..1 through the current tier. */
+      progress: number;
+      nextTier: string | null;
+    };
+    stats: {
+      calls: number;
+      wins: number;
+      roundsPlayed: number;
+      pointsEarned: number;
+      bestCall: number;
+    };
+    history: Array<{
+      id: string;
+      /** null once the room has been cleaned up; the award is kept. */
+      roomName: string | null;
+      points: number;
+      place: number;
+      players: number;
+      roundsPlayed: number;
+      createdAt: string;
+    }>;
+  } | null;
+}
+
+export async function getProfile(): Promise<ProfileResponse> {
+  return request<ProfileResponse>('/api/me/profile');
 }
 
 export async function getChatHistory(
