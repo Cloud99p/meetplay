@@ -48,6 +48,15 @@ export interface MeetingState {
     /** Turn identity, so display can tell a growing sentence from a new one
      *  that opens with the same words (see Utterance.turnSeq). */
     turnSeq?: number;
+    /** Set when NaijaVox corrected this caption after it was shown. `text` is
+     *  already the corrected version; these fields exist so the UI can mark
+     *  the line as revised and so QA can see what was changed. */
+    revised?: {
+      original: string;
+      reason: string;
+      similarity: number;
+      markers: string[];
+    };
     timestamp: number;
   }>;
   gameQuiet: boolean;
@@ -59,6 +68,8 @@ export interface MeetingState {
   recordingResult: { downloadUrl: string | null; filename: string | null } | null;
   recordingError: string | null;
 }
+
+import type { RevisionPayload } from '../lib/stt/STTAdapter';
 
 export interface MeetingActions {
   createAndJoin: (name?: string, password?: string) => Promise<string>;
@@ -85,6 +96,14 @@ export interface MeetingActions {
     turnText?: string,
     turnSeq?: number
   ) => void;
+  /**
+   * Apply a NaijaVox correction to the live captions.
+   *
+   * The revision arrives on the /api/stt socket (see useStt), not the room
+   * socket, so it reaches caption state through this action instead of the
+   * ws.on('stt:revision') listener that could never fire.
+   */
+  applyRevision: (revision: RevisionPayload) => void;
   submitAnswer: (roundId: string, answer: unknown) => void;
   startGame: (gameType: StartableGameType) => void;
   placeMarketBet: (guess: number) => void;
@@ -317,6 +336,20 @@ export function useMeeting(): [MeetingState, MeetingActions] {
         setCaptions((prev) => [...prev.slice(-60), payload]);
       })
     );
+
+    // NaijaVox revision: Deepgram rendered pidgin as English and the shadow
+    // produced a pidgin-preserving reading. Replace the text IN PLACE on the
+    // caption that carried the same original text -- never append a second
+    // caption, which would show the same speech twice and corrupt Word Count
+    // and Bingo, which read every caption once.
+    //
+    // Matched from the end because the revision refers to the most recent
+    // final with that text; scanning forward could hit an older identical
+    // utterance ("yes" said twice).
+    // NOTE: the NaijaVox revision listener used to live here, on the ROOM
+    // socket. It could never fire: /api/stt is a different WebSocket and the
+    // server emits stt:revision there (it holds the audio). The handler now
+    // lives in applyRevision below and is wired through useStt.
 
     unsubs.push(
       ws.on('room:ended', () => {
@@ -933,7 +966,17 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       saveRecapToken(result.room.id, result.token);
       return true;
     } catch (e) {
-      console.error('[meeting] resumeSession failed:', e);
+      // A room that was ended or locked is NOT a failure worth a stack trace:
+      // the stored snapshot is simply stale (people routinely reopen an old
+      // meeting link after the host ended it). Logging it as an error sent
+      // everyone hunting a bug that did not exist, so 403/404 are handled as
+      // "this session is over" and everything else stays a real error.
+      const status = e instanceof api.ApiError ? e.status : 0;
+      if (status === 403 || status === 404) {
+        console.info('[meeting] stored session is no longer valid (%s) - starting fresh', status);
+      } else {
+        console.error('[meeting] resumeSession failed:', e);
+      }
       clearSessionSnapshot();
       return false;
     }
@@ -1065,6 +1108,77 @@ export function useMeeting(): [MeetingState, MeetingActions] {
     },
     [ws]
   );
+
+  /**
+   * NaijaVox correction -> live captions.
+   *
+   * Reached from useStt, i.e. from the /api/stt socket, because that is where
+   * the server emits the revision. Matching is by TEXT, never turnSeq: the
+   * client's turnSeq is its own counter while Flux's turn_index is Deepgram's,
+   * so they drift and would silently mis-pair.
+   *
+   * `original` is Flux's whole turn. A caption may hold that sentence in
+   * `turnText`, only the delta in `text`, or a partial while streaming, so try
+   * exact first and then two-way containment, newest caption first.
+   */
+  const applyRevision = useCallback((payload: RevisionPayload) => {
+    if (!payload?.text || payload.text === payload.original) return;
+    const norm = (s: string) =>
+      s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const want = norm(payload.original ?? '');
+    if (!want) return;
+
+    setCaptions((prev) => {
+      let hit = -1;
+      // 1) Exact match on the whole turn text, newest first.
+      for (let i = prev.length - 1; i >= 0 && hit < 0; i--) {
+        const cands = [prev[i].turnText ?? '', prev[i].text].map(norm).filter(Boolean);
+        if (cands.some((s) => s === want)) hit = i;
+      }
+      // 2) Containment, either direction.
+      //
+      // On a RESUMED turn the caption's `text` holds only the new TAIL words
+      // while Flux reports the WHOLE turn as `original`. A tail is a SUFFIX,
+      // so the prefix comparison this used to do could never match it, and
+      // every correction after the first turn was dropped in silence.
+      //
+      //   caption partial, original complete -> want CONTAINS cand
+      //   caption complete, original a tail  -> cand CONTAINS want
+      //
+      // The 2-word floor stops a stray "yes"/"na" capturing a whole turn.
+      if (hit < 0) {
+        for (let i = prev.length - 1; i >= 0 && hit < 0; i--) {
+          for (const cand of [prev[i].turnText ?? '', prev[i].text].map(norm)) {
+            if (cand.split(' ').filter(Boolean).length < 2) continue;
+            if (cand.includes(want) || want.includes(cand)) {
+              hit = i;
+              break;
+            }
+          }
+        }
+      }
+      // No match (usual cause: the caption aged out of the line cap).
+      // Dropping it is correct -- inventing a caption is worse than the
+      // original wording.
+      if (hit < 0) return prev;
+
+      const next = prev.slice();
+      // Both fields: the overlay prefers turnText, so replacing only `text`
+      // would leave the old wording on screen.
+      next[hit] = {
+        ...next[hit],
+        text: payload.text,
+        turnText: payload.text,
+        revised: {
+          original: (payload.original ?? '').trim(),
+          reason: payload.reason,
+          similarity: payload.similarity,
+          markers: payload.markers ?? [],
+        },
+      };
+      return next;
+    });
+  }, []);
 
   // Quiet mode: watch LiveKit for any active screen-share track.
   // When a participant starts presenting, game notifications suspend.
@@ -1251,6 +1365,7 @@ export function useMeeting(): [MeetingState, MeetingActions] {
       lockRoom,
       leave,
       sendCaption,
+      applyRevision,
       submitAnswer,
       startGame,
       placeMarketBet,
