@@ -17,7 +17,25 @@ import { startRoomCleanup } from './cleanup.js';
 import { buildCsp, clerkOrigin, themeScriptHashes } from './csp.js';
 import { loadConfig } from './config.js';
 
-const app = Fastify({ logger: true });
+// `trustProxy` is REQUIRED behind Railway/Render/Fly, and not for tidiness.
+//
+// Every request arrives from the platform's reverse proxy, so the socket peer is
+// the proxy, not the user. With trustProxy off, `req.ip` is that one proxy
+// address for every visitor on earth -- which does not merely make the rate
+// limiter coarse, it makes it useless: probe traffic from a single machine was
+// observed landing on several different counters (`remaining` rising from 7
+// back to 9 mid-sweep), because a pool of proxy nodes was terminating the
+// connections. No counter ever reached its limit, so the limits never fired.
+//
+// Turning it on makes Fastify resolve `req.ip` from X-Forwarded-For (which the
+// platform sets) and the right-most untrusted hop, so each real client gets its
+// own bucket. This is safe ONLY because a trusted proxy always front-runs us;
+// if the process were ever exposed directly, clients could spoof the header.
+// That is the deployment this app is built for (see Dockerfile / railway.json).
+const app = Fastify({
+  logger: true,
+  trustProxy: true,
+});
 
 // Security headers on every response.
 //

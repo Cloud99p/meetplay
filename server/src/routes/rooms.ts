@@ -74,6 +74,23 @@ export async function roomsRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const body = (req.body ?? {}) as { name?: string; password?: string; userId?: string };
+
+      // Shape first, sanitising second. A probe sent {"name":{"$ne":null}} and got
+      // a 201 with the name stored as null: cleanRoomName() treats any non-string
+      // as "no name given", so a malformed request was silently downgraded to a
+      // valid one instead of being refused. The insert is parameterised, so that
+      // object was inert -- but the handler then trusted the value it had been
+      // handed, and `nameAltered` stayed false, so even the audit log said nothing
+      // unusual happened. Reject the wrong type here; the store should never be
+      // asked to decide what a malformed request means.
+      //
+      // `undefined`/absent stays legal: an unnamed room is a supported state.
+      if (body.name !== undefined && typeof body.name !== 'string') {
+        return reply.code(400).send({ error: 'name must be a string' });
+      }
+      if (body.password !== undefined && typeof body.password !== 'string') {
+        return reply.code(400).send({ error: 'password must be a string' });
+      }
       // Untrusted: strip markup and control chars, cap the length. See
       // utils/roomName.ts for why names are cleaned rather than escaped.
       const { value: name, altered: nameAltered } = cleanRoomName(body.name);
