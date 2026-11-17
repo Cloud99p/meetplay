@@ -77,8 +77,8 @@ export default function Lobby({ onCreate }: Props) {
         {/* Footer */}
         <p className="text-[10px] text-muted/60 text-center mt-6">
           {clerkConfigured
-            ? 'Rooms run peer-to-peer. Video relays through LiveKit and captions through Deepgram; sign-in is handled by Clerk.'
-            : 'Rooms run peer-to-peer. Video relays through LiveKit and captions through Deepgram.'}
+            ? 'Rooms close themselves when everyone leaves. Sign-in is handled by Clerk.'
+            : 'Rooms close themselves when everyone leaves.'}
         </p>
       </div>
     </div>
