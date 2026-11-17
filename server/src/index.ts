@@ -235,6 +235,30 @@ await app.register(sttRoutes);
 startRoomCleanup();
 
 // ---- Static frontend (production) ----
+/**
+ * Is this path a client-side route (so the SPA shell is the right answer)?
+ *
+ * True only for extensionless paths made of ordinary segments. Two rules,
+ * because one was not enough:
+ *
+ *   - `/assets/*` is never a client route; a missing bundle must 404.
+ *   - No segment, anywhere in the path, may start with a dot. Checking only the
+ *     LAST segment let `/.git/config` through as a "route" -- the final segment
+ *     `config` has no dot, so it looked fine, while the path as a whole was
+ *     clearly a probe for a repository. Any dot-prefixed segment is a dotfile
+ *     or dot-directory (`.git`, `.env`, `.well-known` aside), and none of those
+ *     have any business rendering the app shell.
+ *   - The final segment may not contain a dot: `/favicon.ico`, `/robots.txt`
+ *     and a stale `/assets/index-old.js` are file requests and 404 when absent.
+ */
+function isClientRoute(urlPath: string): boolean {
+  if (urlPath.startsWith('/assets/')) return false;
+  const segments = urlPath.split('/').filter(Boolean);
+  if (segments.some((s) => s.startsWith('.'))) return false;
+  const lastSegment = segments[segments.length - 1] ?? '';
+  return !lastSegment.includes('.');
+}
+
 // Serve the built Vite app from dist/ with SPA fallback. Skip if dist is
 // missing (e.g. API-only mode or local dev via scripts/dev.mjs).
 const staticDir = process.env.STATIC_DIR ?? path.resolve(process.cwd(), 'dist');
@@ -246,8 +270,34 @@ if (fs.existsSync(path.join(staticDir, 'index.html'))) {
   });
 
   // SPA fallback: any non-API GET returns index.html (client-side routing)
+  //
+  // The fallback is deliberately narrow. An earlier version returned
+  // index.html for EVERY unmatched GET, so /.env, /.git/config, /package.json
+  // and /assets/missing-abc123.js all answered 200 text/html with the app
+  // shell. Nothing leaked (those files simply are not in dist/), but three
+  // real problems came out of it:
+  //
+  //   1. A missing asset looks like success. If a stale index.html references
+  //      a hashed bundle that no longer exists, the browser fetches the shell,
+  //      gets HTML where it expects JS, and fails with a syntax error somewhere
+  //      unrelated. A 404 would have said exactly what was wrong.
+  //   2. Monitoring cannot tell "route exists" from "route missing" -- probes
+  //      for removed endpoints stay green forever.
+  //   3. Any future mistake in the static root turns into guess-and-check,
+  //      because every path answers confidently.
+  //
+  // So: only extensionless paths get the shell (client routes like /r/<id>,
+  // /about, /account). Anything with a file extension, and everything under
+  // /assets, is treated as a file request and 404s when it is not there.
   app.setNotFoundHandler((req, reply) => {
-    if (req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/ws')) {
+    const urlPath = req.url.split('?')[0] || '/';
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+    if (urlPath.startsWith('/api') || urlPath.startsWith('/ws')) {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+    if (isClientRoute(urlPath)) {
       return reply.sendFile('index.html');
     }
     return reply.code(404).send({ error: 'Not found' });
