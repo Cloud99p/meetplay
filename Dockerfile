@@ -18,8 +18,12 @@ WORKDIR /app
 
 # Install deps first (better layer caching)
 COPY package.json package-lock.json ./
-COPY server/package.json ./server/package.json
-RUN npm ci
+COPY server/package.json server/package-lock.json ./server/
+# Two separate trees: the frontend builds from the root, the backend has its own
+# package.json + lockfile under server/. Server deps MUST be installed in their
+# own layer — `cd server && tsc` cannot compile against a node_modules that
+# doesn't exist, and the failure surfaces only at image-build time.
+RUN npm ci && cd server && npm ci
 
 # Copy source
 COPY . .
@@ -43,7 +47,10 @@ ENV VITE_STT_MODE=$VITE_STT_MODE \
     VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 
 # Build the frontend -> dist/ and compile the server -> server/dist/
-RUN npm run build && cd server && npx tsc -p tsconfig.json
+# Use the local TypeScript binary, not `npx tsc`: npx may resolve to a version
+# downloaded at build time (or none, if the tree is missing), which is both
+# nondeterministic and the exact failure this line used to hit.
+RUN npm run build && cd server && node node_modules/typescript/bin/tsc -p tsconfig.json
 
 # In-memory DB unless DATABASE_URL is provided
 ENV USE_MEMORY_DB=1
